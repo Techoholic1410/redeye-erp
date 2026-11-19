@@ -12,14 +12,14 @@ const uid = (n) => `00000000-0000-4000-8000-00000000000${n}`;
 function seed() {
   const items = (a) => JSON.stringify(a);
   return {
-    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 3, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4 },
+    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4 },
     users: [
       { id: uid(1), name: 'Asha Admin', email: 'admin@demo', role: 'admin', active: 'Yes' },
       { id: uid(2), name: 'Manoj Manager', email: 'manager@demo', role: 'manager', active: 'Yes' },
       { id: uid(3), name: 'Sana Staff', email: 'staff@demo', role: 'staff', active: 'Yes' },
     ],
     clients: [
-      { id: 1, name: 'Acme Retail', contact_person: 'Priya Shah', email: 'priya@acme.example', phone: '98200 11111', gstin: '27AAAAA0000A1Z5', status: 'Active', address: 'Mumbai' },
+      { id: 1, name: 'Acme Retail', contact_person: 'Priya Shah', email: 'priya@acme.example', phone: '98200 11111', gstin: '27AAAAA0000A1Z5', status: 'Active', address: '12, Park Street,\nMumbai – 400001', code: 'AR' },
       { id: 2, name: 'Bluewave Foods', contact_person: 'Rahul Mehta', email: 'rahul@bluewave.example', phone: '98200 22222', status: 'Active' },
       { id: 3, name: 'Nova Clinics', contact_person: 'Dr. Iyer', email: 'office@nova.example', phone: '98200 33333', status: 'Prospect' },
     ],
@@ -43,6 +43,7 @@ function seed() {
     invoices: [
       { id: 1, number: 'RD-INV-0001', client_id: 1, issue_date: day(-25), due_date: day(-5), items: items([{ desc: 'Website design', qty: 1, rate: 100000 }]), tax_percent: 18, status: 'Overdue', subtotal: 100000, total: 118000 },
       { id: 2, number: 'RD-INV-0002', client_id: 2, issue_date: day(-3), due_date: day(12), items: items([{ desc: 'Ad management (Nov)', qty: 1, rate: 60000 }]), tax_percent: 18, status: 'Paid', subtotal: 60000, total: 70800 },
+      { id: 3, number: 'RD/2026/AR-01', client_id: 1, client_ref: 'Acme Retail – Social Media Branding', issue_date: day(-2), due_date: day(10), items: items([{ desc: 'Social Media Branding & Video Content Production', note: 'Second half of 12-video package — due on delivery of 6 videos', amount: 12500 }]), deductions: [{ label: 'Received — Inv. RD/2026/AR-00', amount: 0 }], tax_percent: 0, carry_forward: 0, videos_committed: 12, videos_delivered: 6, status: 'Sent', subtotal: 12500, total: 12500, notes: 'This invoice covers the second half of the 12-video package.\n6 of 12 videos have been delivered; the remaining 6 are in the pipeline.\nKindly process the payable amount at your earliest convenience.' },
     ],
     expenses: [
       { id: 1, date: day(-2), category: 'Software & tools', description: 'Figma seats', amount: 8400, status: 'Approved', created_by: uid(1) },
@@ -111,6 +112,7 @@ function payload(key, body, isNew) {
       if (f.t === 'number' || f.t === 'money') { v = Number(v); if (!Number.isFinite(v)) throw new Error(`${f.l} must be a number`); }
       else if (f.t === 'ref' && f.to !== 'users') v = Number(v);
       else if (f.t === 'items') v = typeof v === 'string' ? v : JSON.stringify(v);
+      else if (f.t === 'deductions') v = typeof v === 'string' ? JSON.parse(v) : v;
     }
     if (f.req && v === null) throw new Error(`${f.l} is required`);
     if (isNew && v === null) continue;
@@ -122,9 +124,17 @@ function businessRules(key, row, old) {
   const u = me();
   if (key === 'invoices') {
     let items = []; try { items = JSON.parse(row.items || '[]'); } catch {}
-    row.subtotal = items.reduce((s, i) => s + (+i.qty || 0) * (+i.rate || 0), 0);
-    row.total = Math.round(row.subtotal * (1 + (+row.tax_percent || 0) / 100) * 100) / 100;
-    row.number = old ? old.number : `RD-INV-${String(db.seq.invoices).padStart(4, '0')}`;
+    row.subtotal = items.reduce((s, i) => s + (i.amount != null ? +i.amount || 0 : (+i.qty || 0) * (+i.rate || 0)), 0);
+    const less = (row.deductions || []).reduce((s, d) => s + (+d.amount || 0), 0);
+    row.total = Math.round((row.subtotal * (1 + (+row.tax_percent || 0) / 100) - less - (+row.carry_forward || 0)) * 100) / 100;
+    if (!String(row.number || '').trim()) {
+      if (old && old.number) row.number = old.number;
+      else {
+        const code = String((db.clients.find((c) => String(c.id) === String(row.client_id)) || {}).code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        if (code) { const pfx = `RD/${String(row.issue_date || day()).slice(0, 4)}/${code}-`; const n = db.invoices.filter((i) => String(i.number || '').startsWith(pfx)).length + 1; row.number = pfx + String(n).padStart(2, '0'); }
+        else row.number = `RD-INV-${String(db.seq.invoices).padStart(4, '0')}`;
+      }
+    }
     if (row.status === 'Paid' && old?.status !== 'Paid') notify(byRole('admin', 'manager'), 'Invoice paid', `${row.number} — ${row.total}`, '#/invoices');
   }
   if (key === 'tasks' && row.assignee_id && row.assignee_id !== old?.assignee_id && row.assignee_id !== u.id) notify([row.assignee_id], 'New task assigned', row.title, '#/tasks');
@@ -168,7 +178,7 @@ export async function api(path, opts = {}) {
   if ((m = path.match(/^\/lookup\/(\w+)$/))) return db[m[1]].filter((x) => x.active !== 'No').map((x) => ({ id: x.id, label: x.name })).sort((a, b) => a.label.localeCompare(b.label));
   if ((m = path.match(/^\/e\/(\w+)\/export$/))) {
     can(m[1], 'read');
-    const fields = ENTITIES[m[1]].fields.filter((f) => f.t !== 'items' && !f.virtual);
+    const fields = ENTITIES[m[1]].fields.filter((f) => f.t !== 'items' && f.t !== 'deductions' && !f.virtual);
     return [fields.map((f) => csvEsc(f.l)).join(','), ...visible(m[1], db[table(m[1])]).map((r) => fields.map((f) => csvEsc(r[f.k])).join(','))].join('\n');
   }
   if ((m = path.match(/^\/e\/(\w+)(?:\/([\w-]+))?(?:\?(.*))?$/))) {
@@ -219,6 +229,7 @@ export async function api(path, opts = {}) {
     if (!a) { db.seq.attendance++; a = { id: db.seq.attendance, user_id: me().id, date: day(), check_in: t, check_out: null }; db.attendance.push(a); } else if (!a.check_out) a.check_out = t;
     save(); return a;
   }
+  if (path === '/company') return { name: 'Redeye Digital Solutions', tagline: 'Content that catches the eye.', address: ['4/2A, Alamu Colony, Chinnampalayam,', 'Pollachi – 642003'], email: 'info@redeyedigital.in', phone: '7708037165', bank: { holder: 'Demo Account Holder', bank: 'Demo Bank', branch: 'Demo Branch', account: '0000000000000', ifsc: 'DEMO0000000' }, signatory: 'Authorized Signatory' };
   if (path === '/dashboard') {
     const r = me().role, mth = day().slice(0, 7), sum = (rows, k) => rows.reduce((s, x) => s + (+x[k] || 0), 0);
     const out = {
