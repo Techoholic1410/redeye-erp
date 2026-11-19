@@ -1,0 +1,177 @@
+// Entity definitions: drive DB schema, API, permissions and the UI forms/tables.
+// t = field type: text | textarea | number | money | date | select | ref | items | email | tel | password
+const ALL = ['admin', 'manager', 'staff'];
+const MGR = ['admin', 'manager'];
+const ADM = ['admin'];
+
+export const ENTITIES = {
+  clients: {
+    label: 'Clients', icon: '🏢', labelField: 'name',
+    cols: ['name', 'contact_person', 'email', 'phone', 'status'],
+    fields: [
+      { k: 'name', l: 'Client / Company', t: 'text', req: 1 },
+      { k: 'contact_person', l: 'Contact person', t: 'text' },
+      { k: 'email', l: 'Email', t: 'email' },
+      { k: 'phone', l: 'Phone', t: 'tel' },
+      { k: 'gstin', l: 'GSTIN / Tax ID', t: 'text' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Active', 'Inactive', 'Prospect'], def: 'Active' },
+      { k: 'address', l: 'Address', t: 'textarea' },
+    ],
+    perms: { read: ALL, create: MGR, update: MGR, del: ADM },
+  },
+  leads: {
+    label: 'Leads (CRM)', icon: '🎯', labelField: 'name', board: 'stage',
+    cols: ['name', 'company', 'source', 'value', 'stage', 'owner_id'],
+    fields: [
+      { k: 'name', l: 'Lead name', t: 'text', req: 1 },
+      { k: 'company', l: 'Company', t: 'text' },
+      { k: 'email', l: 'Email', t: 'email' },
+      { k: 'phone', l: 'Phone', t: 'tel' },
+      { k: 'source', l: 'Source', t: 'select', opts: ['Website', 'Referral', 'Social media', 'Cold outreach', 'Event', 'Other'] },
+      { k: 'value', l: 'Expected value', t: 'money' },
+      { k: 'stage', l: 'Stage', t: 'select', opts: ['New', 'Contacted', 'Proposal', 'Won', 'Lost'], def: 'New' },
+      { k: 'owner_id', l: 'Owner', t: 'ref', to: 'users' },
+      { k: 'notes', l: 'Notes', t: 'textarea' },
+    ],
+    perms: { read: ALL, create: MGR, update: MGR, del: ADM },
+  },
+  projects: {
+    label: 'Projects', icon: '📁', labelField: 'name', board: 'status',
+    cols: ['name', 'client_id', 'status', 'due_date', 'budget', 'manager_id'],
+    fields: [
+      { k: 'name', l: 'Project name', t: 'text', req: 1 },
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Planning', 'Active', 'On hold', 'Completed', 'Cancelled'], def: 'Planning' },
+      { k: 'manager_id', l: 'Project manager', t: 'ref', to: 'users' },
+      { k: 'start_date', l: 'Start date', t: 'date' },
+      { k: 'due_date', l: 'Due date', t: 'date' },
+      { k: 'budget', l: 'Budget', t: 'money' },
+      { k: 'description', l: 'Description', t: 'textarea' },
+    ],
+    perms: { read: ALL, create: MGR, update: MGR, del: ADM },
+  },
+  tasks: {
+    label: 'Tasks', icon: '✅', labelField: 'title', board: 'status',
+    cols: ['title', 'project_id', 'assignee_id', 'priority', 'status', 'due_date'],
+    fields: [
+      { k: 'title', l: 'Title', t: 'text', req: 1 },
+      { k: 'project_id', l: 'Project', t: 'ref', to: 'projects' },
+      { k: 'assignee_id', l: 'Assignee', t: 'ref', to: 'users' },
+      { k: 'priority', l: 'Priority', t: 'select', opts: ['Low', 'Medium', 'High', 'Urgent'], def: 'Medium' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['To do', 'In progress', 'Review', 'Done'], def: 'To do' },
+      { k: 'due_date', l: 'Due date', t: 'date' },
+      { k: 'description', l: 'Description', t: 'textarea' },
+    ],
+    perms: { read: ALL, create: ALL, update: ALL, del: MGR },
+  },
+  invoices: {
+    label: 'Invoices', icon: '🧾', labelField: 'number',
+    cols: ['number', 'client_id', 'issue_date', 'due_date', 'total', 'status'],
+    fields: [
+      { k: 'number', l: 'Invoice no.', t: 'text', ro: 1, auto: 1 },
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients', req: 1 },
+      { k: 'project_id', l: 'Project', t: 'ref', to: 'projects' },
+      { k: 'issue_date', l: 'Issue date', t: 'date', def: 'today' },
+      { k: 'due_date', l: 'Due date', t: 'date' },
+      { k: 'items', l: 'Line items', t: 'items' },
+      { k: 'tax_percent', l: 'Tax % (GST)', t: 'number', def: 18 },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Draft', 'Sent', 'Paid', 'Overdue', 'Cancelled'], def: 'Draft' },
+      { k: 'subtotal', l: 'Subtotal', t: 'money', ro: 1, auto: 1 },
+      { k: 'total', l: 'Total', t: 'money', ro: 1, auto: 1 },
+      { k: 'notes', l: 'Notes / payment terms', t: 'textarea' },
+    ],
+    perms: { read: MGR, create: MGR, update: MGR, del: ADM },
+  },
+  expenses: {
+    label: 'Expenses', icon: '💳', labelField: 'description', ownCol: 'created_by',
+    cols: ['date', 'category', 'description', 'amount', 'status', 'created_by'],
+    fields: [
+      { k: 'date', l: 'Date', t: 'date', def: 'today', req: 1 },
+      { k: 'category', l: 'Category', t: 'select', opts: ['Software & tools', 'Ad spend', 'Hosting', 'Freelancers', 'Travel', 'Office', 'Salaries', 'Other'] },
+      { k: 'description', l: 'Description', t: 'text', req: 1 },
+      { k: 'amount', l: 'Amount', t: 'money', req: 1 },
+      { k: 'project_id', l: 'Project', t: 'ref', to: 'projects' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Pending', 'Approved', 'Rejected', 'Reimbursed'], def: 'Pending' },
+    ],
+    perms: { read: ALL, create: ALL, update: MGR, del: ADM },
+  },
+  employees: {
+    label: 'Employees (HR)', icon: '👥', labelField: 'name',
+    cols: ['name', 'designation', 'department', 'phone', 'join_date', 'status'],
+    fields: [
+      { k: 'name', l: 'Full name', t: 'text', req: 1 },
+      { k: 'email', l: 'Email', t: 'email' },
+      { k: 'phone', l: 'Phone', t: 'tel' },
+      { k: 'designation', l: 'Designation', t: 'text' },
+      { k: 'department', l: 'Department', t: 'select', opts: ['Management', 'Design', 'Development', 'Marketing', 'Sales', 'Accounts', 'Support', 'HR'] },
+      { k: 'join_date', l: 'Joining date', t: 'date' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Active', 'On notice', 'Left'], def: 'Active' },
+    ],
+    perms: { read: MGR, create: ADM, update: ADM, del: ADM },
+  },
+  leaves: {
+    label: 'Leave', icon: '🌴', labelField: 'type', ownCol: 'user_id',
+    cols: ['user_id', 'type', 'from_date', 'to_date', 'status'],
+    fields: [
+      { k: 'user_id', l: 'Employee', t: 'ref', to: 'users' },
+      { k: 'type', l: 'Leave type', t: 'select', opts: ['Casual', 'Sick', 'Earned', 'Unpaid', 'Comp-off'], req: 1 },
+      { k: 'from_date', l: 'From', t: 'date', req: 1 },
+      { k: 'to_date', l: 'To', t: 'date', req: 1 },
+      { k: 'reason', l: 'Reason', t: 'textarea' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Pending', 'Approved', 'Rejected'], def: 'Pending' },
+    ],
+    perms: { read: ALL, create: ALL, update: MGR, del: ADM },
+  },
+  attendance: {
+    label: 'Attendance', icon: '🕘', labelField: 'date', ownCol: 'user_id',
+    cols: ['date', 'user_id', 'check_in', 'check_out'],
+    fields: [
+      { k: 'user_id', l: 'Employee', t: 'ref', to: 'users' },
+      { k: 'date', l: 'Date', t: 'date', def: 'today' },
+      { k: 'check_in', l: 'Check in', t: 'text' },
+      { k: 'check_out', l: 'Check out', t: 'text' },
+    ],
+    perms: { read: ALL, create: ADM, update: ADM, del: ADM },
+  },
+  tickets: {
+    label: 'Support tickets', icon: '🎧', labelField: 'subject', board: 'status',
+    cols: ['subject', 'client_id', 'priority', 'status', 'assignee_id'],
+    fields: [
+      { k: 'subject', l: 'Subject', t: 'text', req: 1 },
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients' },
+      { k: 'priority', l: 'Priority', t: 'select', opts: ['Low', 'Medium', 'High', 'Urgent'], def: 'Medium' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Open', 'In progress', 'Waiting', 'Resolved', 'Closed'], def: 'Open' },
+      { k: 'assignee_id', l: 'Assignee', t: 'ref', to: 'users' },
+      { k: 'description', l: 'Description', t: 'textarea' },
+    ],
+    perms: { read: ALL, create: ALL, update: ALL, del: MGR },
+  },
+  assets: {
+    label: 'Assets & inventory', icon: '💻', labelField: 'name',
+    cols: ['name', 'category', 'serial', 'assigned_to', 'status'],
+    fields: [
+      { k: 'name', l: 'Asset', t: 'text', req: 1 },
+      { k: 'category', l: 'Category', t: 'select', opts: ['Laptop', 'Monitor', 'Phone', 'Camera', 'Furniture', 'Software licence', 'Other'] },
+      { k: 'serial', l: 'Serial / licence key ref', t: 'text' },
+      { k: 'assigned_to', l: 'Assigned to', t: 'ref', to: 'users' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['In use', 'In stock', 'Repair', 'Retired'], def: 'In stock' },
+      { k: 'purchase_date', l: 'Purchase date', t: 'date' },
+      { k: 'cost', l: 'Cost', t: 'money' },
+    ],
+    perms: { read: ALL, create: MGR, update: MGR, del: ADM },
+  },
+  users: {
+    label: 'Users & access', icon: '🔐', labelField: 'name',
+    cols: ['name', 'email', 'role', 'active'],
+    fields: [
+      { k: 'name', l: 'Name', t: 'text', req: 1 },
+      { k: 'email', l: 'Login email', t: 'email', req: 1 },
+      { k: 'role', l: 'Role', t: 'select', opts: ['admin', 'manager', 'staff'], def: 'staff', req: 1 },
+      { k: 'active', l: 'Active', t: 'select', opts: ['Yes', 'No'], def: 'Yes' },
+      { k: 'password', l: 'Password (min 8 chars; leave blank to keep)', t: 'password', virtual: 1 },
+    ],
+    perms: { read: ALL, create: ADM, update: ADM, del: ADM },
+  },
+};
+
+export const NAV = ['clients', 'leads', 'projects', 'tasks', 'invoices', 'expenses', 'employees', 'leaves', 'attendance', 'tickets', 'assets', 'users'];

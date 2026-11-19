@@ -1,0 +1,10 @@
+{
+  "name": "redeye-erp",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve web -l 8080",
+    "icons": "node scripts/make-icons.js"
+  }
+}
