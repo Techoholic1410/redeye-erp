@@ -358,31 +358,36 @@ async function enablePush(silent) {
   } catch (err) { if (!silent) toast('Could not enable: ' + err.message); return false; }
 }
 
-// Shown once after sign-in on every new browser/device: asks the person to allow notifications.
-// Browsers only allow the permission request from a click, so this is a button, not an automatic request.
+// Pop-up shown right after every sign-in until notifications are enabled on this browser/device.
+// (Browsers only allow the permission box from a click, so the pop-up has an Enable button.)
 async function pushPrompt() {
   try {
-    if (!('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window)) return;
+    const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     const { key } = await api('/push/key');
-    if (!key || key.includes('YOUR-')) return;                          // demo / push not configured
-    if (Notification.permission === 'granted') { enablePush(true); return; }   // make sure THIS browser is registered
-    if (Notification.permission === 'denied') return;
-    let until = 0; try { until = +localStorage.getItem('pushSnooze') || 0; } catch {}
-    if (Date.now() < until || document.querySelector('.pushask')) return;
+    const demo = !key;                                                     // demo build has no push service
+    if (!demo && key.includes('YOUR-')) return;                            // push not configured yet
+    if (supported && !demo && Notification.permission === 'granted') { enablePush(true); return; }   // register THIS browser quietly
+    if (document.querySelector('.pushask')) return;
     const ios = /iphone|ipad|ipod/i.test(navigator.userAgent), standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-    const needInstall = ios && !standalone;
+    const denied = supported && !demo && Notification.permission === 'denied', needInstall = ios && !standalone;
     setTimeout(() => {
       const ov = document.createElement('div'); ov.className = 'ov pushask';
-      ov.innerHTML = `<div class="modal" style="max-width:420px" role="dialog" aria-label="Enable notifications"><div class="body" style="display:block;text-align:center;padding:28px 24px 8px">
-        <div style="font-size:42px">🔔</div><h3 style="margin:10px 0 6px;font-size:19px">Turn on notifications</h3>
-        <p style="color:var(--mute);margin:0 0 6px">Get an alert the moment a task is assigned to you or changes — even when Redeye ERP is closed.</p>
-        ${needInstall ? '<p><b>iPhone/iPad:</b> first tap Share → “Add to Home Screen”, open the app from your home screen, then enable notifications.</p>' : ''}</div>
-        <footer style="justify-content:center">${needInstall ? '' : '<button class="btn" id="pk-yes">Enable notifications</button>'}<button class="btn ghost" id="pk-no">Not now</button></footer></div>`;
+      ov.innerHTML = `<div class="modal" style="max-width:440px" role="dialog" aria-label="Enable notifications"><div class="body" style="display:block;text-align:center;padding:30px 26px 10px">
+        <div style="font-size:46px">🔔</div><h3 style="margin:10px 0 8px;font-size:21px">Turn on notifications</h3>
+        <p style="color:var(--mute);margin:0 0 8px">Get an instant alert when a task is assigned to you or updated — on every browser and device you sign in from, even when Redeye ERP is closed.</p>
+        ${demo ? '<p><span class="tag warn">Demo</span> Real push alerts work in the live app once it is connected.</p>' : ''}
+        ${denied ? '<p><b>Notifications are blocked for this site.</b> Click the 🔒 icon next to the address bar → Notifications → Allow, then reload.</p>' : ''}
+        ${needInstall ? '<p><b>iPhone/iPad:</b> first tap Share → “Add to Home Screen”, open the app from your home screen, then enable notifications.</p>' : ''}
+        ${!supported && !demo ? '<p><span class="tag warn">This browser does not support push notifications</span></p>' : ''}</div>
+        <footer style="justify-content:center">${needInstall || denied || (!supported && !demo) ? '' : '<button class="btn" id="pk-yes">Enable notifications</button>'}<button class="btn ghost" id="pk-no">${denied || needInstall ? 'Close' : 'Not now'}</button></footer></div>`;
       document.body.append(ov);
       const close = () => ov.remove();
-      $('#pk-no', ov).onclick = () => { try { localStorage.setItem('pushSnooze', String(Date.now() + 3 * 864e5)); } catch {} close(); };
-      if ($('#pk-yes', ov)) $('#pk-yes', ov).onclick = async () => { const ok = await enablePush(false); if (ok) close(); else if (Notification.permission === 'denied') close(); };
-    }, 1200);
+      $('#pk-no', ov).onclick = close;
+      if ($('#pk-yes', ov)) $('#pk-yes', ov).onclick = async () => {
+        if (demo) { toast('Demo only — push works in the live app'); return close(); }
+        const ok = await enablePush(false); if (ok || Notification.permission === 'denied') close();
+      };
+    }, 600);
   } catch {}
 }
 
