@@ -1,4 +1,4 @@
-const CACHE = 'redeye-erp-v2';
+const CACHE = 'redeye-erp-v3';
 const SHELL = ['/', '/app.js', '/data.js', '/entities.js', '/config.js', '/style.css', '/manifest.webmanifest', '/icons/icon-192.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
