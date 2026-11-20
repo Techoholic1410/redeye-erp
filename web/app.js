@@ -27,7 +27,7 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); inst
 // ---------- login ----------
 function renderLogin(msg = '') {
   $('#root').innerHTML = `<div class="login"><form class="card" id="lf">
-    <img src="icons/icon-192.png" alt=""><h1>Redeye ERP</h1><p>Redeye Digital Solutions · sign in to continue</p>
+    <img class="logo" src="icons/logo.png" alt="Redeye Digital Solutions"><h1>Redeye ERP</h1><p>Redeye Digital Solutions · sign in to continue</p>
     <div class="f"><label>Email</label><input name="email" type="email" autocomplete="username" required autofocus></div>
     <div class="f"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>
     <div class="err" id="le">${esc(msg)}</div><button class="btn" style="width:100%">Sign in</button></form></div>`;
@@ -44,7 +44,7 @@ async function boot() {
   meta = await api('/meta');
   lookups = {};
   $('#root').innerHTML = `<div class="shell">
-    <aside class="side" id="side"><div class="brand"><img src="icons/icon-192.png" alt="">Redeye ERP</div>
+    <aside class="side" id="side"><div class="brand"><img src="icons/logo.png" alt="Redeye"><small>ERP</small></div>
       <nav class="nav" id="nav"></nav>
       <div class="me"><b>${esc(meta.user.name)}</b>${esc(meta.user.role)} · <a href="#" id="lo" style="color:#fff">Sign out</a></div></aside>
     <div class="main"><div class="top"><button class="iconbtn burger" id="bg" aria-label="Menu">☰</button><h2 id="title"></h2>
