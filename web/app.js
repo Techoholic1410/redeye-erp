@@ -71,7 +71,7 @@ async function boot() {
       <button class="iconbtn" id="bell" aria-label="Notifications">🔔<span class="badge" id="bb" hidden>0</span></button></div>
       <div id="view"></div></div></div>`;
   const link = (k, i, l) => `<a href="#/${k}" data-k="${k}"><span>${i}</span>${esc(l)}</a>`;
-  $('#nav').innerHTML = link('dashboard', '📊', 'Dashboard') + meta.groups.map(([g, ks]) => `<div class="grp">${esc(g)}</div>` + ks.map((k) => link(k, meta.entities[k].icon, meta.entities[k].label)).join('')).join('') + '<div class="grp">Account</div>' + link('settings', '⚙️', 'Settings');
+  $('#nav').innerHTML = link('dashboard', '📊', 'Dashboard') + meta.groups.map(([g, ks]) => `<div class="grp">${esc(g)}</div>` + ks.map((k) => link(k, meta.entities[k].icon, meta.entities[k].label)).join('')).join('') + '<div class="grp">Account</div>' + link('assistant', '✨', 'Ask Claude') + link('settings', '⚙️', 'Settings');
   $('#lo').onclick = async (e) => { e.preventDefault(); try { await api('/logout', { method: 'POST' }); } catch {} logoutLocal(); };
   $('#bg').onclick = () => toggleSide();
   $('#bell').onclick = openNotifs;
@@ -96,6 +96,7 @@ async function route() {
   try {
     if (k === 'dashboard') { $('#title').textContent = 'Dashboard'; await dashboard(view); }
     else if (k === 'settings') { $('#title').textContent = 'Settings'; settings(view); }
+    else if (k === 'assistant') { $('#title').textContent = 'Ask Claude'; await assistantView(view); }
     else if (meta.entities[k]) { $('#title').textContent = meta.entities[k].label; await entityView(view, k); }
     else location.hash = '#/dashboard';
   } catch (err) { view.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
@@ -185,6 +186,7 @@ async function entityView(view, key) {
   const fdefs = (e.filters || []).map((k) => e.fields.find((f) => f.k === k)).filter(Boolean);
   view.innerHTML = `<div class="bar"><input id="q" placeholder="Search…" type="search">
     ${modes.length > 1 ? `<div class="seg" id="seg">${modes.map((m) => `<button data-m="${m}" class="${m === mode ? 'on' : ''}">${MODE_L[m]}</button>`).join('')}</div>` : ''}<span class="sp"></span>
+    ${key === 'shoots' && e.can.create ? '<button class="btn ghost" id="aishoot">✨ Plan shoots</button>' : ''}
     <button class="btn ghost" id="exp">⬇ CSV</button>${e.can.create ? '<button class="btn" id="new">+ New</button>' : ''}</div>
     ${fdefs.length ? `<div class="flt">${fdefs.map((f) => `<select data-f="${f.k}"><option value="">${esc(f.l.replace(/\s*\(.*$/, ''))}: all</option>${(f.t === 'ref' ? (lookups[f.to] || []).map((o) => [o.id, o.label]) : (f.opts || []).map((o) => [o, o])).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select>`).join('')}</div>` : ''}
     <div id="data"></div>`;
@@ -264,6 +266,7 @@ async function entityView(view, key) {
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = `${key}-${today()}.csv`; a.click();
   };
   if ($('#new')) $('#new').onclick = () => form(key, null, load, preset());
+  if ($('#aishoot')) $('#aishoot').onclick = (ev) => aiRun(ev.currentTarget, () => aiShootPlan(load));
   await load();
 }
 
@@ -294,6 +297,7 @@ function form(key, row, after, preset = {}) {
   ov.innerHTML = `<form class="modal"><header><h3>${isNew ? 'New' : 'Edit'} · ${esc(e.label)}</h3><button type="button" class="btn ghost sm" id="x">✕</button></header>
     <div class="body">${fields.map(input).join('')}</div>
     <footer><span id="fe" class="err" style="flex:1;margin:0;align-self:center"></span>
+    ${editable && (key === 'content_items' || key === 'shoots') ? '<div class="acts" id="aiacts"></div>' : ''}
     ${!isNew && e.can.update ? `<div class="acts">${(e.actions || []).filter((a) => ACTIONS[a]).map((a) => `<button type="button" class="btn ghost" data-act="${a}">${ACTIONS[a].label}</button>`).join('')}</div>` : ''}
     ${key === 'invoices' && !isNew ? '<button type="button" class="btn ghost" id="pr">🖨 Print / PDF</button>' : ''}
     ${!isNew && e.can.del ? '<button type="button" class="btn danger" id="del">Delete</button>' : ''}
@@ -366,6 +370,7 @@ function form(key, row, after, preset = {}) {
     api('/e/content_items').then((r) => { allItems = r; if (row) allItems.filter((i) => String(i.shoot_id) === String(row.id)).forEach((i) => picked.add(String(i.id))); pickReady = true; drawP(); }).catch(() => { $('#pick', ov).innerHTML = '<small>Could not load content</small>'; });
     ov.querySelector('[name=client_id]')?.addEventListener('change', () => { picked = new Set(); drawP(); });
   }
+  aiFormTools(key, ov, { allItems: () => allItems, picked: () => picked });
   ov.querySelectorAll('[data-act]').forEach((b) => (b.onclick = async () => { try { await ACTIONS[b.dataset.act].run(row, { close, after }); } catch (err) { $('#fe', ov).textContent = err.message; } }));
 
   ov.querySelector('form').onsubmit = async (ev) => {
@@ -608,6 +613,134 @@ async function renderPublicDoc(kind, token) {
     .replace('</body>', '<style>@media print{.noprint{display:none}}</style><div class="noprint" style="position:fixed;top:12px;right:12px"><button onclick="window.print()" style="background:#e03a2f;color:#fff;border:0;border-radius:10px;padding:10px 16px;font:600 14px system-ui;cursor:pointer">⬇ Download / Print PDF</button></div></body>');
   document.open(); document.write(html); document.close();
 }
+
+// ---------- Claude assistant ----------
+const ai = (task, body = {}) => api('/ai', { method: 'POST', body: { task, ...body } });
+async function aiRun(btn, fn) {
+  const old = btn.textContent; btn.disabled = true; btn.textContent = '✨ Thinking…';
+  try { await fn(); } catch (err) { toast(err.message); } finally { btn.disabled = false; btn.textContent = old; }
+}
+const clientById = async (id) => (id ? (await api('/e/clients')).find((c) => String(c.id) === String(id)) || {} : {});
+
+function aiPreview(title, listHtml, applyLabel, apply) {
+  const ov = document.createElement('div'); ov.className = 'ov';
+  ov.innerHTML = `<div class="modal" style="max-width:720px"><header><h3>${esc(title)}</h3><button class="btn ghost sm" id="x">✕</button></header><div class="body" style="grid-template-columns:1fr"><div class="pick" style="max-height:60vh">${listHtml}</div></div>
+    <footer><span id="fe" class="err" style="flex:1;margin:0;align-self:center"></span><button class="btn ghost" id="no">Cancel</button><button class="btn" id="ok">${esc(applyLabel)}</button></footer></div>`;
+  document.body.append(ov);
+  const close = () => ov.remove();
+  $('#x', ov).onclick = close; $('#no', ov).onclick = close; ov.onmousedown = (e) => { if (e.target === ov) close(); };
+  $('#ok', ov).onclick = async (e) => {
+    e.target.disabled = true;
+    try { await apply([...ov.querySelectorAll('input[type=checkbox]:checked')].map((c) => c.value)); close(); } catch (err) { $('#fe', ov).textContent = err.message; e.target.disabled = false; }
+  };
+}
+
+ACTIONS.ai_plan_ideas = {
+  label: '✨ Fill ideas with Claude',
+  async run(plan, ctx) {
+    const items = (await api('/e/content_items')).filter((i) => String(i.plan_id) === String(plan.id));
+    const empty = items.filter((i) => i.status === 'Idea' && !i.concept);
+    if (!empty.length) return toast('No empty slots in this plan. Use “Generate content calendar” first, or all ideas are already filled.');
+    const r = await ai('ideas', { client: await clientById(plan.client_id), plan: { month: plan.month, objective: plan.objective, themes: plan.themes }, items: empty, used: items.filter((i) => i.concept).map((i) => i.title) });
+    const byId = Object.fromEntries(empty.map((i) => [String(i.id), i]));
+    const ideas = (Array.isArray(r.data) ? r.data : []).filter((x) => byId[String(x.id)]);
+    if (!ideas.length) throw new Error('Claude returned no usable ideas, please try again');
+    aiPreview(`Ideas for ${ideas.length} slots`, ideas.map((x) => { const s = byId[String(x.id)]; return `<label><input type="checkbox" value="${esc(x.id)}" checked><span><b>${esc(x.title)}</b> <small>· ${esc(s.publish_date || '')} · ${esc(s.format || '')} · ${esc(s.platform || '')}</small><br><small>${esc(x.concept)}</small></span></label>`; }).join(''),
+      'Add selected to calendar', async (ids) => {
+        for (const id of ids) { const x = ideas.find((i) => String(i.id) === String(id)); await api(`/e/content_items/${id}`, { method: 'PUT', body: { ...byId[String(id)], title: x.title, concept: x.concept } }); }
+        ctx.close(); toast(`${ids.length} ideas added`); location.hash = '#/content_items'; route();
+      });
+  },
+};
+
+async function aiShootPlan(after) {
+  const [items, shoots] = await Promise.all([api('/e/content_items'), api('/e/shoots')]);
+  const todo = items.filter((i) => PRE_SHOOT.includes(i.status) && !i.shoot_id);
+  if (!todo.length) return toast('Nothing waiting to be shot. Plan content first.');
+  await lookup('clients');
+  const r = await ai('shoot_plan', { today: today(), lead_days: 5, max_per_shoot: 6,
+    items: todo.map((i) => ({ ...i, client: lbl('clients', i.client_id) })),
+    booked: shoots.filter((s) => s.status !== 'Cancelled' && s.shoot_date >= today()).map((s) => ({ client_id: s.client_id, date: s.shoot_date })) });
+  const plan = (Array.isArray(r.data) ? r.data : []).filter((s) => s.date && Array.isArray(s.item_ids) && s.item_ids.length);
+  if (!plan.length) throw new Error('Claude returned no usable plan, please try again');
+  const title = (s) => s.title || `${lbl('clients', s.client_id)} shoot`;
+  aiPreview(`Proposed shoots (${plan.length})`, plan.map((s, n) => `<label><input type="checkbox" value="${n}" checked><span><b>${esc(title(s))}</b> <small>· ${esc(s.date)}${s.call_time ? ' at ' + esc(s.call_time) : ''} · ${s.item_ids.length} pieces</small><br><small>${esc(s.reason || '')}</small><br><small>${s.item_ids.map((id) => esc(todo.find((i) => String(i.id) === String(id))?.title || '#' + id)).join(' · ')}</small></span></label>`).join(''),
+    'Create selected shoots', async (picked) => {
+      for (const n of picked) {
+        const s = plan[+n], shoot = await api('/e/shoots', { method: 'POST', body: { title: title(s), client_id: s.client_id, shoot_date: s.date, call_time: s.call_time, status: 'Planned', director_id: meta.user.id, notes: s.reason } });
+        for (const id of s.item_ids) { const it = todo.find((i) => String(i.id) === String(id)); if (it) await api(`/e/content_items/${it.id}`, { method: 'PUT', body: { ...it, shoot_id: shoot.id, status: 'Shoot scheduled' } }); }
+      }
+      toast(`${picked.length} shoots created`); after();
+    });
+}
+
+function aiFormTools(key, ov, ctx) {
+  const box = $('#aiacts', ov); if (!box) return;
+  const val = (n) => ov.querySelector(`[name=${n}]`)?.value || '';
+  const put = (n, v) => { const el = ov.querySelector(`[name=${n}]`); if (el && v) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+  const add = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost'; b.textContent = label; b.onclick = () => aiRun(b, fn); box.append(b); };
+  if (key === 'content_items') {
+    const item = () => ({ title: val('title'), format: val('format'), platform: val('platform'), pillar: val('pillar'), concept: val('concept'), script: val('script') });
+    const plan = async () => (val('plan_id') ? (await api('/e/content_plans')).find((p) => String(p.id) === val('plan_id')) : null);
+    add('✨ Write script', async () => {
+      if (!val('title')) throw new Error('Give it a title first');
+      const lang = prompt('Language for the script? (English / Tamil / Tanglish)', 'English'); if (lang === null) return;
+      const r = await ai('script', { client: await clientById(val('client_id')), plan: await plan(), item: item(), language: lang });
+      put('script', r.text); toast('Script added — review and Save');
+    });
+    add('✨ Caption & hashtags', async () => {
+      if (!val('title')) throw new Error('Give it a title first');
+      const r = await ai('caption', { client: await clientById(val('client_id')), item: item() });
+      const d = r.data || {}; put('caption', d.caption || r.text); put('hashtags', d.hashtags); toast('Caption added — review and Save');
+    });
+  }
+  if (key === 'shoots') {
+    add('✨ Shot list', async () => {
+      const pieces = ctx.allItems().filter((i) => ctx.picked().has(String(i.id)));
+      const r = await ai('shotlist', { client: await clientById(val('client_id')), shoot: { title: val('title'), location: val('location'), call_time: val('call_time'), wrap_time: val('wrap_time'), talent: val('talent'), props: val('props') }, pieces });
+      put('shot_list', r.text); toast('Shot list added — review and Save');
+    });
+  }
+}
+
+// ----- Ask Claude (chat) -----
+let chatLog = [];
+async function assistantView(view) {
+  await lookup('clients');
+  const chips = ['Write a 30-second reel script for', 'Give me 10 reel ideas for', 'Draft a one-month content plan for', 'Write a client update message about', 'Suggest a shoot-day schedule for'];
+  view.innerHTML = `<div class="panel" style="display:flex;flex-direction:column;gap:12px;min-height:60vh">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><div style="flex:1;min-width:220px"><label>Client context (optional)</label><select id="cx"><option value="">None</option>${(lookups.clients || []).map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join('')}</select></div><button class="btn ghost" id="clr">New chat</button></div>
+    <div id="chat" class="chat"></div>
+    <div class="pipe">${chips.map((c) => `<a href="#" data-c="${esc(c)}">${esc(c)}…</a>`).join('')}</div>
+    <div style="display:flex;gap:10px;align-items:flex-end"><textarea id="msg" placeholder="Ask for a script, ideas, a caption, a plan…" style="min-height:70px"></textarea><button class="btn" id="send">Send</button></div></div>`;
+  const rich = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+  const draw = () => {
+    $('#chat').innerHTML = chatLog.map((m, i) => `<div class="m ${m.role}"><div>${rich(m.content)}</div>${m.role === 'assistant' ? `<button class="btn ghost sm" data-cp="${i}">Copy</button>` : ''}</div>`).join('') || '<div class="empty" style="padding:24px">Ask me for scripts, content ideas, captions, client messages or shoot plans. Pick a client above so I know their brand.</div>';
+    $('#chat').scrollTop = 1e9;
+    view.querySelectorAll('[data-cp]').forEach((b) => (b.onclick = async () => { try { await navigator.clipboard.writeText(chatLog[b.dataset.cp].content); toast('Copied'); } catch { toast('Select the text to copy'); } }));
+  };
+  const context = async () => {
+    const id = $('#cx').value; if (!id) return '';
+    const c = await clientById(id), [items, shoots, pk] = await Promise.all([api('/e/content_items').catch(() => []), api('/e/shoots').catch(() => []), api('/e/packages').catch(() => [])]);
+    const mine = items.filter((i) => String(i.client_id) === id).slice(0, 30).map((i) => `${i.publish_date || 'undated'} ${i.format || ''} "${i.title}" [${i.status}]`).join('\n');
+    return `${brandLine(c)}\nPackage: ${pk.filter((p) => String(p.client_id) === id && p.status === 'Active').map((p) => `${p.name} (${p.videos_per_month ?? '?'} videos, ${p.posts_per_month ?? '?'} posts / month)`).join('; ') || 'n/a'}\nUpcoming shoots: ${shoots.filter((s) => String(s.client_id) === id && s.shoot_date >= today()).map((s) => `${s.shoot_date} ${s.title}`).join('; ') || 'none'}\nContent items:\n${mine || 'none'}`;
+  };
+  const brandLine = (c) => `Client: ${c.name || ''}\nBrand notes: ${c.brand_notes || 'none'}\nSocial handles: ${c.social_handles || 'n/a'}`;
+  const send = async () => {
+    const t = $('#msg').value.trim(); if (!t) return;
+    chatLog.push({ role: 'user', content: t }); $('#msg').value = ''; draw();
+    const b = $('#send'); b.disabled = true; b.textContent = '…';
+    try { const r = await ai('chat', { messages: chatLog, context: await context() }); chatLog.push({ role: 'assistant', content: r.text }); }
+    catch (err) { chatLog.pop(); $('#msg').value = t; toast(err.message); }
+    b.disabled = false; b.textContent = 'Send'; draw();
+  };
+  $('#send').onclick = send;
+  $('#msg').onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); };
+  $('#clr').onclick = () => { chatLog = []; draw(); };
+  view.querySelectorAll('[data-c]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); $('#msg').value = a.dataset.c + ' '; $('#msg').focus(); }));
+  draw();
+}
+
 
 // ---------- production panels on the dashboard ----------
 async function productionPanels(view) {

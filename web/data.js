@@ -142,6 +142,11 @@ export async function api(path, opts = {}) {
     }
   }
 
+  if (path === '/ai') {
+    const { data, error } = await sb.functions.invoke('ai-assist', { body });
+    if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch {} throw new Error(msg); }
+    return data;
+  }
   if (path === '/company') { const { data } = await sb.from('company_profile').select('data').eq('id', 1).maybeSingle(); return data?.data || {}; }
   if (path === '/attendance/today') return ok(await sb.rpc('attendance_today'));
   if (path === '/attendance/toggle') return ok(await sb.rpc('attendance_toggle'));

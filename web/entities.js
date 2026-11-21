@@ -229,7 +229,7 @@ export const ENTITIES = {
       { k: 'cadence', l: 'Posting cadence — slots that become the content calendar', t: 'cadence' },
       { k: 'notes', l: 'Notes', t: 'textarea' },
     ],
-    actions: ['generate_calendar'],
+    actions: ['generate_calendar', 'ai_plan_ideas'],
     perms: { read: ALL, create: MGR, update: MGR, del: MGR },
   },
   content_items: {

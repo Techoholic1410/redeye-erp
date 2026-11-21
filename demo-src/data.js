@@ -295,6 +295,16 @@ export async function api(path, opts = {}) {
     if (!a) { db.seq.attendance++; a = { id: db.seq.attendance, user_id: me().id, date: day(), check_in: t, check_out: null }; db.attendance.push(a); } else if (!a.check_out) a.check_out = t;
     save(); return a;
   }
+  if (path === '/ai') {
+    await new Promise((r) => setTimeout(r, 700));
+    const t = body.task, it = body.item || {};
+    if (t === 'script') return { text: `HOOK (0-3s): "${it.title || 'Your title'}" - open on the product in close-up.\n\n**Scene table**\n1. Visual: close-up reveal | VO: "Ever wondered why…" | Text: THE SECRET\n2. Visual: behind the scenes | VO: "Here's how we do it" | Text: 3 STEPS\n\nCTA: Visit us today.\nMusic: upbeat, local flavour. Duration ~25s.\n\n(Demo sample — the live app uses Claude.)` };
+    if (t === 'caption') return { data: { caption: `${it.title || 'New post'} ✨\nHere's what makes it special. Tap to know more.`, hashtags: '#redeye #contentcreators #pollachi #reels' }, text: '' };
+    if (t === 'ideas') return { data: (body.items || []).map((x, n) => ({ id: x.id, title: `Idea ${n + 1}: ${x.pillar || x.format}`, concept: 'Open with a surprising question, show the product in action, end with a clear call to action. (Demo sample)' })) };
+    if (t === 'shotlist') return { text: '1. Wide establishing shot of the location\n2. Close-ups of the product\n3. Talent to camera, 3 takes\n(Demo sample)' };
+    if (t === 'shoot_plan') { const by = {}; (body.items || []).forEach((x) => (by[x.client_id] ||= []).push(x)); return { data: Object.entries(by).map(([cid, xs], n) => ({ title: `${xs[0].client} - batch shoot`, client_id: +cid, date: day(3 + n * 3), call_time: '09:30', item_ids: xs.map((x) => x.id), reason: 'Batched by client, 3+ days ahead of first publish date. (Demo sample)' })) }; }
+    return { text: 'This is a demo reply. In the live app, Claude answers here using your clients, plans and shoots.' };
+  }
   if (path === '/company') return { name: 'Redeye Digital Solutions', tagline: 'Content that catches the eye.', address: ['4/2A, Alamu Colony, Chinnampalayam,', 'Pollachi – 642003'], email: 'info@redeyedigital.in', phone: '7708037165', bank: { holder: 'Demo Account Holder', bank: 'Demo Bank', branch: 'Demo Branch', account: '0000000000000', ifsc: 'DEMO0000000' }, signatory: 'Authorized Signatory' };
   if (path === '/dashboard') {
     const r = me().role, mth = day().slice(0, 7), sum = (rows, k) => rows.reduce((s, x) => s + (+x[k] || 0), 0);
