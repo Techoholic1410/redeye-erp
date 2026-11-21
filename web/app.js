@@ -74,7 +74,7 @@ async function boot() {
       <button class="iconbtn" id="bell" aria-label="Notifications">🔔<span class="badge" id="bb" hidden>0</span></button></div>
       <div id="view"></div></div></div>`;
   const link = (k, i, l) => `<a href="#/${k}" data-k="${k}"><span>${i}</span>${esc(l)}</a>`;
-  $('#nav').innerHTML = link('dashboard', '📊', 'Dashboard') + meta.groups.map(([g, ks]) => `<div class="grp">${esc(g)}</div>` + ks.map((k) => link(k, meta.entities[k].icon, meta.entities[k].label)).join('') + CUSTOM_PAGES.filter((c) => c.group === g && c.roles.includes(meta.user.role)).map((c) => link(c.k, c.icon, c.label)).join('')).join('') + '<div class="grp">Account</div>' + link('assistant', '✨', 'Ask Claude') + link('settings', '⚙️', 'Settings');
+  $('#nav').innerHTML = link('dashboard', '📊', 'Dashboard') + link('tower', '🚦', 'Control tower') + meta.groups.map(([g, ks]) => `<div class="grp">${esc(g)}</div>` + ks.map((k) => link(k, meta.entities[k].icon, meta.entities[k].label)).join('') + CUSTOM_PAGES.filter((c) => c.group === g && c.roles.includes(meta.user.role)).map((c) => link(c.k, c.icon, c.label)).join('')).join('') + '<div class="grp">Account</div>' + link('assistant', '✨', 'Ask Claude') + link('settings', '⚙️', 'Settings');
   $('#lo').onclick = async (e) => { e.preventDefault(); try { await api('/logout', { method: 'POST' }); } catch {} logoutLocal(); };
   $('#bg').onclick = () => toggleSide();
   $('#bell').onclick = openNotifs;
@@ -100,6 +100,7 @@ async function route() {
   try {
     if (k === 'dashboard') { $('#title').textContent = 'Dashboard'; await dashboard(view); }
     else if (k === 'settings') { $('#title').textContent = 'Settings'; settings(view); }
+    else if (k === 'tower') { $('#title').textContent = 'Control tower'; await controlTowerView(view); }
     else if (k === 'workload') { $('#title').textContent = 'Team workload'; await workloadView(view); }
     else if (k === 'receivables' && meta.user.role !== 'staff') { $('#title').textContent = 'Receivables'; await receivablesView(view); }
     else if (k === 'profitability' && meta.user.role !== 'staff') { $('#title').textContent = 'Client profitability'; await profitabilityView(view); }
@@ -1223,6 +1224,121 @@ async function renderPayPage(token) {
     try { localStorage.setItem('approver', $('#cw').value.trim()); } catch {}
     try { await api('/public/claim', { method: 'POST', body: { token, ref: $('#cr').value, who: $('#cw').value } }); renderPayPage(token); } catch (err) { $('#ce').textContent = err.message; }
   };
+}
+
+// ---------- Control Tower: what needs you, client health, what's working ----------
+async function controlTowerView(view) {
+  const isMgr = meta.user.role !== 'staff', me = meta.user.id, t0 = today();
+  const safe = (p) => p.catch(() => []);
+  const [items, shoots, tasks, invs, , reqs, pkgs, contracts, gear] = await Promise.all([
+    safe(api('/e/content_items')), safe(api('/e/shoots')), safe(api('/e/tasks')),
+    isMgr ? safe(api('/e/invoices')) : [], isMgr ? safe(api('/e/payments')) : [], isMgr ? safe(api('/e/payment_requests')) : [], isMgr ? safe(api('/e/packages')) : [], isMgr ? safe(api('/e/contracts')) : [], safe(api('/e/equipment_log')),
+    lookup('clients'), lookup('users'), lookup('assets')]);
+  const dd = (d) => Math.round((new Date(String(d).slice(0, 10) + 'T00:00:00') - new Date(t0 + 'T00:00:00')) / 864e5);
+  const when = (n) => (n === 0 ? 'today' : n === 1 ? 'tomorrow' : n < 0 ? `${-n} day${n === -1 ? '' : 's'} ago` : `in ${n} days`);
+  const mineI = (i) => isMgr || [i.owner_id, i.writer_id, i.editor_id, i.designer_id].includes(me);
+  const reload = () => route();
+  const open = (key, row) => () => form(key, row, reload);
+  const run = (name, row, key) => () => ACTIONS[name].run(row, { close() {}, after: reload, key }).catch((e) => toast(e.message));
+  const needs = [];
+  const add = (sev, icon, title, detail, actions = []) => needs.push({ sev, icon, title, detail, actions });
+  const PRE = ['Idea', 'Scripting', 'Ready to shoot', 'Shoot scheduled'];
+
+  if (isMgr) {
+    for (const r of reqs.filter((x) => x.status === 'Paid claimed')) add(3, '💸', `Confirm ${money(r.amount)} from ${lbl('clients', r.client_id)}`, `They say they paid · ref ${r.claimed_ref}. Check your bank/UPI, then confirm.`, [{ l: '✅ Confirm', f: run('confirm_request_paid', r, 'payment_requests') }]);
+    for (const i of invs.filter((x) => ['Sent', 'Partial', 'Overdue'].includes(x.status) && x.due_date && x.due_date < t0 && balanceOf(x) > 0).sort((a, b) => (a.due_date < b.due_date ? -1 : 1)))
+      add(-dd(i.due_date) > 7 ? 3 : 2, '🧾', `${i.number} is ${-dd(i.due_date)} days overdue · ${money(balanceOf(i))}`, lbl('clients', i.client_id), [{ l: '⏰ Remind', f: run('whatsapp_reminder', i, 'invoices') }, { l: '📨 Request', f: run('payment_request', i, 'invoices') }]);
+    for (const i of invs.filter((x) => ['Sent', 'Partial'].includes(x.status) && x.due_date && dd(x.due_date) >= 0 && dd(x.due_date) <= 2 && balanceOf(x) > 0))
+      add(1, '🧾', `${i.number} due ${when(dd(i.due_date))} · ${money(balanceOf(i))}`, lbl('clients', i.client_id), [{ l: '⏰ Remind', f: run('whatsapp_reminder', i, 'invoices') }]);
+    const mk = t0.slice(0, 7), dayN = +t0.slice(8, 10);
+    for (const p of pkgs.filter((x) => x.status === 'Active' && x.monthly_fee && x.billing_day && dayN >= x.billing_day && !invs.some((i) => String(i.package_id) === String(x.id) && String(i.issue_date).startsWith(mk))))
+      add(2, '📦', `Retainer invoice not raised: ${lbl('clients', p.client_id)} · ${p.name}`, `Billing day was the ${p.billing_day}${[, 'st', 'nd', 'rd'][p.billing_day % 10 > 3 || [11, 12, 13].includes(p.billing_day % 100) ? 0 : p.billing_day % 10] || 'th'} · ${money(p.monthly_fee)}`, [{ l: '🧾 Raise invoice', f: run('raise_invoice', p, 'packages') }]);
+    for (const k of contracts.filter((x) => x.status === 'Sent')) add(1, '✍️', `Waiting for signature: ${k.title}`, lbl('clients', k.client_id), [{ l: '💬 Send again', f: run('share_contract', k, 'contracts') }]);
+  }
+  for (const i of items.filter((x) => x.status !== 'Published' && mineI(x))) {
+    const n = i.publish_date ? dd(i.publish_date) : null;
+    const who = lbl('clients', i.client_id);
+    if (n !== null && n < 0) add(3, '📤', `Overdue post: ${i.title}`, `${who} · was due ${when(n)} · stage ${i.status}`, [{ l: '📤 Posting pack', f: run('post_pack', i, 'content_items') }, { l: 'Open', f: open('content_items', i) }]);
+    else if (n === 0) add(2, '📤', `Going live today: ${i.title}`, `${who} · ${i.status}`, [{ l: '📤 Posting pack', f: run('post_pack', i, 'content_items') }]);
+    else if (n !== null && n <= 3 && PRE.includes(i.status)) add(n <= 1 ? 3 : 2, '⚠️', `At risk: ${i.title} goes live ${when(n)} but is still “${i.status}”`, `${who}${i.editor_id || i.designer_id || i.writer_id ? '' : ' · nobody assigned'}`, [{ l: 'Open', f: open('content_items', i) }]);
+    if (i.client_status === 'Sent to client' && n !== null && n <= 3) add(n <= 1 ? 3 : 2, '⏳', `Client hasn't approved: ${i.title}`, `${who} · goes live ${when(n)}`, isMgr ? [{ l: '✅ Nudge client', f: run('approval_link', i, 'content_items') }] : []);
+    if (i.client_status === 'Changes requested') add(2, '✏️', `Client wants changes: ${i.title}`, `${who} · ${String(i.client_feedback || '').split('\n').pop().slice(0, 120)}`, [{ l: 'Open', f: open('content_items', i) }]);
+  }
+  for (const s of shoots.filter((x) => ['Planned', 'Confirmed'].includes(x.status) && x.shoot_date && dd(x.shoot_date) >= 0 && dd(x.shoot_date) <= 2)) {
+    const crew = arr(s.crew_ids), missing = [!s.director_id && !crew.length && 'crew', !s.call_time && 'call time', !s.location && 'location', !items.some((i) => String(i.shoot_id) === String(s.id)) && 'content attached'].filter(Boolean);
+    if (missing.length) add(2, '🎬', `Shoot ${when(dd(s.shoot_date))} is missing: ${missing.join(', ')}`, s.title, [{ l: 'Open', f: open('shoots', s) }]);
+    else add(1, '🎬', `Shoot ${when(dd(s.shoot_date))}: ${s.title}`, `${s.call_time || ''} · ${s.location || ''}`, [{ l: '🖨 Call sheet', f: run('call_sheet', s, 'shoots') }]);
+  }
+  const late = tasks.filter((t) => t.status !== 'Done' && t.due_date && t.due_date < t0 && (isMgr || t.assignee_id === me)), byU = {};
+  late.forEach((t) => (byU[t.assignee_id] ||= []).push(t));
+  for (const [u, ts] of Object.entries(byU)) add(2, '✅', `${u === me ? 'You have' : (lbl('users', u) || 'Someone') + ' has'} ${ts.length} overdue task${ts.length > 1 ? 's' : ''}`, ts.slice(0, 3).map((t) => t.title).join(' · '), [{ l: 'View tasks', f: () => (location.hash = '#/tasks') }]);
+  for (const g of gear.filter((x) => !x.returned_on && x.due_back && x.due_back < t0)) add(2, '🎒', `Equipment overdue: ${lbl('assets', g.asset_id) || 'item'} (${lbl('users', g.user_id) || 'someone'})`, `was due back ${when(dd(g.due_back))}`, [{ l: '↩ Mark returned', f: run('mark_returned', g, 'equipment_log') }]);
+  const empty = items.filter((i) => i.status === 'Idea' && !i.concept && i.publish_date && dd(i.publish_date) >= 0 && dd(i.publish_date) <= 14 && mineI(i)), byC = {};
+  empty.forEach((i) => (byC[i.client_id] ||= []).push(i));
+  for (const [c, is] of Object.entries(byC)) add(1, '💡', `${is.length} slot${is.length > 1 ? 's' : ''} in the next 2 weeks still have no idea: ${lbl('clients', c)}`, is.slice(0, 3).map((i) => i.title).join(' · '), [{ l: 'Open calendar', f: () => (location.hash = '#/content_items') }]);
+  needs.sort((a, b) => b.sev - a.sev);
+
+  // ----- client health (managers) -----
+  const mk2 = t0.slice(0, 7), dim = new Date(+t0.slice(0, 4), +t0.slice(5, 7), 0).getDate(), dayN2 = +t0.slice(8, 10), VID = ['Reel', 'YouTube video', 'YouTube Short'];
+  const ago = (n) => iso(new Date(Date.now() - n * 864e5)), avg = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
+  const health = (lookups.clients || []).map((c) => {
+    const cid = String(c.id), ci = items.filter((i) => String(i.client_id) === cid), pk = pkgs.find((p) => String(p.client_id) === cid && p.status === 'Active');
+    const active = !!pk || ci.some((i) => i.status !== 'Published') || invs.some((i) => String(i.client_id) === cid && ['Sent', 'Partial', 'Overdue'].includes(i.status));
+    if (!active) return null;
+    const reasons = [], parts = {};
+    const vids = ci.filter((i) => i.status === 'Published' && VID.includes(i.format) && String(i.posted_on || i.publish_date).startsWith(mk2)).length;
+    if (pk?.videos_per_month) { const exp = Math.ceil((pk.videos_per_month * dayN2) / dim), r = exp ? Math.min(1, vids / exp) : 1; parts.delivery = Math.round(30 * r); if (r < 0.8) reasons.push(`${Math.max(exp - vids, 1)} video${exp - vids > 1 ? 's' : ''} behind plan`); } else parts.delivery = 24;
+    const od = invs.filter((i) => String(i.client_id) === cid && ['Sent', 'Partial', 'Overdue'].includes(i.status) && i.due_date && i.due_date < t0 && balanceOf(i) > 0), odAmt = od.reduce((s, i) => s + balanceOf(i), 0), maxLate = Math.max(0, ...od.map((i) => -dd(i.due_date)));
+    parts.pay = odAmt ? Math.max(0, Math.round(25 - 5 - maxLate * 0.5)) : 25; if (odAmt) reasons.push(`${money(odAmt)} overdue${maxLate > 7 ? ` (${maxLate} days)` : ''}`);
+    const waiting = ci.filter((i) => i.client_status === 'Sent to client' && i.status !== 'Published' && i.publish_date && dd(i.publish_date) <= 3).length;
+    parts.appr = Math.max(0, 20 - 5 * waiting); if (waiting) reasons.push(`${waiting} approval${waiting > 1 ? 's' : ''} waiting`);
+    const plannedNext = ci.filter((i) => i.status !== 'Published' && i.publish_date && dd(i.publish_date) >= 0 && dd(i.publish_date) <= 14).length;
+    const expNext = pk ? ((pk.videos_per_month || 0) + (pk.posts_per_month || 0)) * (14 / 30) : 0;
+    parts.pipe = expNext ? Math.round(15 * Math.min(1, plannedNext / expNext)) : 11; if (expNext && plannedNext < expNext * 0.6) reasons.push(`only ${plannedNext} pieces planned for the next 2 weeks`);
+    const v1 = avg(ci.filter((i) => i.views != null && (i.posted_on || '') >= ago(30)).map((i) => +i.views)), v0 = avg(ci.filter((i) => i.views != null && (i.posted_on || '') >= ago(60) && (i.posted_on || '') < ago(30)).map((i) => +i.views));
+    parts.eng = v1 != null && v0 ? Math.round(10 * Math.min(1, v1 / v0)) : 7; if (v1 != null && v0 && v1 < v0 * 0.7) reasons.push(`views down ${Math.round((1 - v1 / v0) * 100)}% vs last month`);
+    const score = Object.values(parts).reduce((s, x) => s + x, 0);
+    const nextShoot = shoots.filter((s) => String(s.client_id) === cid && s.shoot_date >= t0 && s.status !== 'Cancelled').sort((a, b) => (a.shoot_date < b.shoot_date ? -1 : 1))[0];
+    return { c, score, reasons, vids, pk, odAmt, waiting, nextShoot };
+  }).filter(Boolean).sort((a, b) => a.score - b.score);
+
+  // ----- insights -----
+  const pub = items.filter((i) => i.status === 'Published' && i.views != null && (i.posted_on || i.publish_date) >= ago(90));
+  const group = (keyFn) => { const m = {}; pub.forEach((i) => { const k = keyFn(i); if (k) (m[k] ||= []).push(+i.views || 0); }); return Object.entries(m).map(([k, v]) => ({ k, n: v.length, avg: avg(v) })).sort((a, b) => b.avg - a.avg); };
+  const byFormat = group((i) => i.format), byDay = group((i) => DAYS[(new Date((i.posted_on || i.publish_date) + 'T00:00:00').getDay() + 6) % 7]), byPlat = group((i) => i.platform), byPillar = group((i) => i.pillar);
+  const bars = (rows, unit = '') => { const mx = Math.max(1, ...rows.map((r) => r.avg)); return rows.map((r) => `<div class="row" style="gap:12px"><span style="width:130px">${esc(r.k)}<br><small style="color:var(--mute)">${r.n} post${r.n > 1 ? 's' : ''}</small></span><div style="flex:1"><div class="bar2" style="width:${Math.max(3, (r.avg / mx) * 100)}%"></div></div><b style="width:80px;text-align:right">${new Intl.NumberFormat('en-IN').format(Math.round(r.avg))}${unit}</b></div>`).join(''); };
+  const tips = [];
+  if (byFormat.length > 1) { const a = byFormat[0], z = byFormat[byFormat.length - 1]; if (z.avg > 0) tips.push(`<b>${esc(a.k)}</b> average ${(a.avg / z.avg).toFixed(1)}× the views of <b>${esc(z.k)}</b>. Plan more of the first.`); }
+  if (byDay.filter((d) => d.n >= 2).length > 1) tips.push(`Best posting day so far: <b>${esc(byDay.filter((d) => d.n >= 2)[0].k)}</b>.`);
+  if (byPillar.length > 1) tips.push(`Strongest content pillar: <b>${esc(byPillar[0].k)}</b>.`);
+  const top = [...pub].sort((a, b) => (+b.views || 0) - (+a.views || 0)).slice(0, 5);
+
+  const sevCls = { 3: 'bad', 2: 'warn', 1: 'info' }, cnt = (s) => needs.filter((n) => n.sev === s).length;
+  const tabs = [['needs', `Needs attention (${needs.length})`], ...(isMgr ? [['health', 'Client health']] : []), ['insights', "What's working"]];
+  let tab = 'needs';
+  const draw = () => {
+    let body = '';
+    if (tab === 'needs') {
+      body = needs.length ? `<div class="grid" style="margin-bottom:12px"><div class="panel kpi"><small>Urgent</small><div class="v" style="color:var(--bad)">${cnt(3)}</div></div><div class="panel kpi"><small>Soon</small><div class="v" style="color:var(--warn)">${cnt(2)}</div></div><div class="panel kpi"><small>Heads-up</small><div class="v" style="color:var(--info)">${cnt(1)}</div></div></div>`
+        + needs.map((n, i) => `<div class="need ${sevCls[n.sev]}"><div class="nt"><span class="ni">${n.icon}</span><span><b>${esc(n.title)}</b><br><small style="color:var(--mute)">${esc(n.detail || '')}</small></span></div><div class="na">${n.actions.map((a, j) => `<button class="btn ${j ? 'ghost' : ''} sm" data-i="${i}" data-j="${j}">${esc(a.l)}</button>`).join('')}</div></div>`).join('')
+        : '<div class="empty">🎉 Nothing needs you right now. Enjoy the quiet.</div>';
+    } else if (tab === 'health') {
+      body = `<div class="tw"><table><thead><tr><th>Client</th><th>Health</th><th>Videos this month</th><th>Overdue</th><th>Next shoot</th><th>Why</th><th></th></tr></thead><tbody>${health.map((h, i) => { const cls = h.score >= 75 ? 'ok' : h.score >= 50 ? 'warn' : 'bad', lab = h.score >= 75 ? 'Healthy' : h.score >= 50 ? 'Watch' : 'At risk'; return `<tr style="cursor:default"><td><b>${esc(h.c.label)}</b></td><td><span class="tag ${cls}">${h.score} · ${lab}</span></td><td>${h.pk?.videos_per_month ? `${h.vids} / ${h.pk.videos_per_month}` : h.vids}</td><td>${h.odAmt ? money(h.odAmt) : '—'}</td><td>${h.nextShoot ? esc(NICE_DATE(h.nextShoot.shoot_date)) : '—'}</td><td style="white-space:normal;min-width:200px">${h.reasons.map(esc).join(' · ') || '<span style="color:var(--mute)">All good</span>'}</td><td><button class="btn ghost sm" data-hp="${i}">🔗 Portal</button> <button class="btn ghost sm" data-hr="${i}">📈 Report</button></td></tr>`; }).join('') || '<tr><td colspan="7" style="color:var(--mute)">No active clients yet</td></tr>'}</tbody></table></div>
+        <p style="color:var(--mute);font-size:12px">Score out of 100: videos delivered vs package (30), payments on time (25), client approvals not stuck (20), content planned for the next 2 weeks (15), views trend (10).</p>`;
+    } else {
+      body = pub.length >= 3 ? `${tips.length ? `<div class="panel" style="margin-bottom:12px;border-color:var(--brand)"><h3>💡 What the numbers say</h3>${tips.map((t) => `<p style="margin:6px 0">${t}</p>`).join('')}</div>` : ''}
+        <div class="stack" style="margin-top:0"><div class="panel"><h3>Average views by format</h3>${bars(byFormat)}</div><div class="panel"><h3>Average views by day posted</h3>${bars(byDay)}</div>
+        ${byPlat.length > 1 ? `<div class="panel"><h3>By platform</h3>${bars(byPlat)}</div>` : ''}${byPillar.length > 1 ? `<div class="panel"><h3>By content pillar</h3>${bars(byPillar)}</div>` : ''}</div>
+        <div class="panel" style="margin-top:14px"><h3>🏆 Top posts (last 90 days)</h3>${top.map((i) => `<div class="row"><span>${esc(i.title)}<br><small style="color:var(--mute)">${esc([lbl('clients', i.client_id), i.format, i.platform].filter(Boolean).join(' · '))}</small></span><b>${new Intl.NumberFormat('en-IN').format(i.views)} views</b></div>`).join('')}</div>`
+        : '<div class="empty">Insights appear once at least 3 published posts have results (views) filled in. Add views, likes and reach on each published item.</div>';
+    }
+    view.innerHTML = `<div class="seg" style="margin-bottom:14px">${tabs.map(([k, l]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>${body}`;
+    view.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => { tab = b.dataset.t; draw(); }));
+    view.querySelectorAll('[data-i]').forEach((b) => (b.onclick = () => needs[b.dataset.i].actions[b.dataset.j].f()));
+    view.querySelectorAll('[data-hp]').forEach((b) => (b.onclick = async () => { const c = (await api('/e/clients')).find((x) => String(x.id) === String(health[b.dataset.hp].c.id)); ACTIONS.share_portal.run(c).catch((e) => toast(e.message)); }));
+    view.querySelectorAll('[data-hr]').forEach((b) => (b.onclick = async () => { const c = (await api('/e/clients')).find((x) => String(x.id) === String(health[b.dataset.hr].c.id)); ACTIONS.client_report.run(c); }));
+  };
+  draw();
 }
 
 // ---------- production panels on the dashboard ----------

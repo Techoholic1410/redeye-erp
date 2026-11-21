@@ -188,6 +188,12 @@ table.wl{min-width:760px}table.wl th,table.wl td{padding:9px 10px;text-align:cen
 .wc{display:inline-block;background:#fff;border:1px solid var(--line-soft);border-radius:9px;padding:2px 7px;margin:1px;font-size:12px;cursor:default}
 .wbusy{background:rgba(217,119,6,.10)}.wover{color:var(--bad)}.tdy{box-shadow:inset 0 0 0 1px var(--brand)}
 
+/* control tower */
+.need{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;background:var(--glass);border:1px solid var(--line);border-left:4px solid var(--mute);border-radius:14px;padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow)}
+.need.bad{border-left-color:var(--bad)}.need.warn{border-left-color:#d97706}.need.info{border-left-color:var(--info)}
+.need .nt{display:flex;gap:12px;align-items:flex-start;flex:1;min-width:240px}.need .ni{font-size:22px;line-height:1.2}.need .na{display:flex;gap:8px;flex-wrap:wrap}
+.bar2{height:10px;border-radius:6px;background:linear-gradient(90deg,var(--brand),var(--brand-2))}
+
 /* motion */
 @keyframes rise{from{opacity:0;transform:translateY(18px) scale(.99)}to{opacity:1;transform:none}}
 @keyframes fall{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}

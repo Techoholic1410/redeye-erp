@@ -12,7 +12,7 @@ const uid = (n) => `00000000-0000-4000-8000-00000000000${n}`;
 function seed() {
   const items = (a) => JSON.stringify(a);
   return {
-    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4, packages: 3, content_plans: 2, content_items: 13, shoots: 3, meetings: 3, freelancers: 4, quotes: 2, payments: 3, contracts: 2, equipment_log: 2, task_templates: 5, comments: 1, attachments: 1, payment_requests: 2 },
+    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4, packages: 3, content_plans: 2, content_items: 20, shoots: 3, meetings: 3, freelancers: 4, quotes: 2, payments: 3, contracts: 2, equipment_log: 2, task_templates: 5, comments: 1, attachments: 1, payment_requests: 2 },
     users: [
       { id: uid(1), name: 'Asha Admin', email: 'admin@demo', role: 'admin', active: 'Yes' },
       { id: uid(2), name: 'Manoj Manager', email: 'manager@demo', role: 'manager', active: 'Yes' },
@@ -92,6 +92,12 @@ function seed() {
       { id: 7, plan_id: 1, client_id: 1, title: 'Gift guide carousel', pillar: 'Tips & education', format: 'Carousel', platform: 'Instagram + Facebook', publish_date: day(10), status: 'Idea', owner_id: uid(2) },
       { id: 8, plan_id: 2, client_id: 2, title: '10-minute pasta', pillar: 'Quick recipes', format: 'YouTube Short', platform: 'YouTube', publish_date: day(3), status: 'Ready to shoot', owner_id: uid(2), writer_id: uid(2) },
       { id: 9, plan_id: 2, client_id: 2, title: 'Chef tip: knife basics', pillar: 'Chef tips', format: 'YouTube Short', platform: 'YouTube', publish_date: day(7), status: 'Idea', owner_id: uid(2) },
+      { id: 11, client_id: 1, title: 'Product reveal reel', pillar: 'Product stories', format: 'Reel', platform: 'Instagram', publish_date: day(-12), status: 'Published', posted_on: day(-12), views: 18200, reach: 14000, likes: 1300, comments: 60, shares: 120, saves: 210 },
+      { id: 12, client_id: 1, title: 'Behind the seams', pillar: 'Behind the scenes', format: 'Reel', platform: 'Instagram', publish_date: day(-19), status: 'Published', posted_on: day(-19), views: 9400, reach: 7000, likes: 640, comments: 22, shares: 40, saves: 80 },
+      { id: 13, client_id: 1, title: 'Gift guide', pillar: 'Tips & education', format: 'Carousel', platform: 'Instagram', publish_date: day(-25), status: 'Published', posted_on: day(-25), views: 3100, reach: 2500, likes: 210, comments: 9, shares: 14, saves: 60 },
+      { id: 14, client_id: 2, title: 'Pasta in 10 minutes', pillar: 'Quick recipes', format: 'YouTube Short', platform: 'YouTube', publish_date: day(-8), status: 'Published', posted_on: day(-8), views: 22800, reach: 18000, likes: 1500, comments: 88, shares: 140, saves: 0 },
+      { id: 15, client_id: 2, title: 'Chef tip: salt', pillar: 'Chef tips', format: 'Static post', platform: 'Instagram', publish_date: day(-33), status: 'Published', posted_on: day(-33), views: 1900, reach: 1500, likes: 120, comments: 4, shares: 6, saves: 20 },
+      { id: 16, client_id: 2, title: 'Kitchen tour', pillar: 'Behind the scenes', format: 'Reel', platform: 'Instagram', publish_date: day(-40), status: 'Published', posted_on: day(-40), views: 7700, reach: 6000, likes: 500, comments: 18, shares: 33, saves: 45 },
       { id: 10, plan_id: 1, client_id: 1, title: 'Diwali countdown stories', pillar: 'Product stories', format: 'Story', platform: 'Instagram', publish_date: day(0), status: 'Editing', owner_id: uid(2), editor_id: uid(3), edit_due: day(0) },
     ],
     meetings: [
