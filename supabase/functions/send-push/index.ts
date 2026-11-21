@@ -11,12 +11,17 @@ Deno.serve(async (req) => {
   if (req.headers.get("x-webhook-secret") !== Deno.env.get("WEBHOOK_SECRET")) return new Response("forbidden", { status: 403 });
   const { record } = await req.json();
   if (!record?.user_id) return new Response("bad request", { status: 400 });
-  const { data: subs } = await sb.from("push_subs").select("id,data").eq("user_id", record.user_id);
+  const { data: subs, error: subsError } = await sb.from("push_subs").select("id,data").eq("user_id", record.user_id);
   const payload = JSON.stringify({ title: record.title, body: record.body, url: record.url });
   let sent = 0;
+  const failures: { status?: number; message: string }[] = [];
   await Promise.all((subs ?? []).map(async (s) => {
     try { await webpush.sendNotification(s.data, payload); sent++; }
-    catch (e) { if ([404, 410].includes((e as { statusCode?: number }).statusCode ?? 0)) await sb.from("push_subs").delete().eq("id", s.id); }
+    catch (e) {
+      const err = e as { statusCode?: number; message?: string };
+      failures.push({ status: err.statusCode, message: String(err.message ?? e).slice(0, 160) });
+      if ([404, 410].includes(err.statusCode ?? 0)) await sb.from("push_subs").delete().eq("id", s.id);
+    }
   }));
-  return new Response(JSON.stringify({ sent }), { headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify({ sent, devices: subs?.length ?? 0, dbError: subsError?.message ?? null, failures }), { headers: { "content-type": "application/json" } });
 });
