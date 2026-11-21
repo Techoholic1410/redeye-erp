@@ -52,6 +52,7 @@ function renderLogin(msg = '') {
     <img class="logo" src="icons/logo.png" alt="Redeye Digital Solutions"><h1>Redeye ERP</h1><p>Redeye Digital Solutions · sign in to continue</p>
     <div class="f"><label>Email</label><input name="email" type="email" autocomplete="username" required autofocus></div>
     <div class="f"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>
+    <label style="text-transform:none;letter-spacing:0;display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink);margin:2px 0 8px"><input type="checkbox" name="remember" checked style="width:auto"> Keep me signed in on this device</label>
     <div class="err" id="le">${esc(msg)}</div><button class="btn" style="width:100%">Sign in</button></form></div>`;
   $('#lf').onsubmit = async (e) => {
     e.preventDefault();
@@ -82,6 +83,7 @@ async function boot() {
   notifChannel = sb.channel('notifs').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, () => loadNotifs()).subscribe();
   route();
   pushPrompt();
+  try { navigator.storage?.persist?.(); } catch {}
 }
 function toggleSide(force) {
   const s = $('#side'), open = force ?? !s.classList.contains('open');
@@ -1344,5 +1346,11 @@ async function pushPrompt() {
   const { data: { session } } = await sb.auth.getSession();
   if (recovering && session) return renderSetPassword();
   if (!session) return renderLogin();
-  try { await boot(); } catch (err) { logoutLocal(err.message); }
+  try { await boot(); } catch (err) { /reach the server|Reconnecting/i.test(err.message) ? renderRetry(err.message) : logoutLocal(err.message); }
 })();
+
+// shown instead of the login page when the server can't be reached: you stay signed in, just try again
+function renderRetry(msg) {
+  $('#root').innerHTML = `<div class="login"><div class="card"><img class="logo" src="icons/logo.png" alt="Redeye Digital Solutions"><h1>Can't connect</h1><p>${esc(msg)}</p><button class="btn" id="rt" style="width:100%">Try again</button></div></div>`;
+  $('#rt').onclick = async () => { try { await boot(); } catch (err) { renderRetry(err.message); } };
+}

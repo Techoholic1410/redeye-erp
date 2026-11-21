@@ -6,12 +6,24 @@ import { ENTITIES, NAV, NAV_GROUPS } from './entities.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY, VAPID_PUBLIC_KEY } from './config.js';
 
 export const configured = !SUPABASE_URL.includes('YOUR-PROJECT');
-export const sb = createClient(configured ? SUPABASE_URL : 'https://placeholder.supabase.co', configured ? SUPABASE_ANON_KEY : 'placeholder');
+// "Keep me signed in" (default) stores the session on this device; unticked keeps it only until the tab/window is closed.
+const REMEMBER = 'redeye-remember';
+const remembering = () => { try { return localStorage.getItem(REMEMBER) !== '0'; } catch { return true; } };
+const authStorage = {
+  getItem: (k) => { try { return sessionStorage.getItem(k) ?? localStorage.getItem(k); } catch { return null; } },
+  setItem: (k, v) => { try { (remembering() ? localStorage : sessionStorage).setItem(k, v); (remembering() ? sessionStorage : localStorage).removeItem(k); } catch {} },
+  removeItem: (k) => { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch {} },
+};
+export const sb = createClient(configured ? SUPABASE_URL : 'https://placeholder.supabase.co', configured ? SUPABASE_ANON_KEY : 'placeholder',
+  { auth: { storage: authStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 
 const table = (k) => (k === 'users' ? 'profiles' : k);
+let refreshing = null;
+const recover = () => (refreshing ||= sb.auth.refreshSession().then(({ error }) => { if (error && /refresh token|invalid|not found|expired/i.test(error.message)) sb.auth.signOut(); }).catch(() => {}).finally(() => { refreshing = null; }));
 const fail = (error) => {
   const m = error.message || String(error);
-  if (error.status === 401 || /JWT/i.test(m)) { sb.auth.signOut(); throw new Error('Session expired. Please sign in again.'); }
+  // A one-off token error must not sign you out: try to refresh quietly; only sign out if the refresh token itself is dead.
+  if (error.status === 401 || /JWT/i.test(m)) { recover(); throw new Error('Reconnecting… please try that again.'); }
   if (error.code === '42501' || /row-level security|permission denied/i.test(m)) throw new Error('Not allowed');
   if (error.code === '23505') throw new Error('That already exists');
   if (error.code === '23502') throw new Error('A required field is missing');
@@ -23,9 +35,14 @@ const ok = ({ data, error }) => { if (error) fail(error); return data; };
 const csvEsc = (v) => { v = v == null ? '' : String(v); if (/^[=+\-@]/.test(v)) v = "'" + v; return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
 
 async function me() {
-  const { data: { user } } = await sb.auth.getUser();
+  const { data: { session } } = await sb.auth.getSession();   // local, works offline: no network call just to know who you are
+  const user = session?.user;
   if (!user) throw new Error('Not signed in');
-  const { data: p } = await sb.from('profiles').select('id,name,email,role,active').eq('id', user.id).maybeSingle();
+  const { data: p, error } = await sb.from('profiles').select('id,name,email,role,active').eq('id', user.id).maybeSingle();
+  if (error) {
+    if (error.status === 401 || /JWT/i.test(error.message || '')) { await recover(); throw new Error('Reconnecting… please reload in a moment.'); }
+    throw new Error('Could not reach the server. Check your connection and try again.');   // keeps you signed in
+  }
   if (!p || p.active !== 'Yes') { await sb.auth.signOut(); throw new Error('Your account is not active yet. Ask an administrator to activate it.'); }
   return p;
 }
@@ -66,6 +83,7 @@ export async function api(path, opts = {}) {
   let m;
 
   if (path === '/login') {
+    try { localStorage.setItem(REMEMBER, body.remember ? '1' : '0'); } catch {}
     const { error } = await sb.auth.signInWithPassword({ email: String(body.email).trim(), password: body.password });
     if (error) throw new Error(error.message === 'Invalid login credentials' ? 'Invalid email or password' : error.message);
     return {};
