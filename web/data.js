@@ -71,6 +71,7 @@ export async function api(path, opts = {}) {
     return {};
   }
   if (path === '/logout') { await sb.auth.signOut(); return {}; }
+  if (path === '/public/doc') return ok(await sb.rpc('public_doc', { kind: body.kind, tok: body.token }));
 
   if (path === '/meta') {
     const user = await me(), entities = {};

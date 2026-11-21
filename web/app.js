@@ -523,6 +523,8 @@ const ACTIONS = {
     },
   },
   quote_print: { label: '🖨 Print / PDF', run: (q) => printInvoice(q, 'quote') },
+  whatsapp_invoice: { label: '💬 Send on WhatsApp', run: (d) => openWhatsApp(d, 'inv') },
+  whatsapp_quote: { label: '💬 Send on WhatsApp', run: (d) => openWhatsApp(d, 'quote') },
   quote_to_invoice: {
     label: '➡ Convert to invoice',
     async run(q, ctx) {
@@ -534,6 +536,45 @@ const ACTIONS = {
     },
   },
 };
+
+// ---------- WhatsApp sharing + public (no-login) document view ----------
+const waNumber = (p) => { let d = String(p || '').replace(/\D/g, '').replace(/^0+/, ''); if (d.length === 10) d = '91' + d; return d; };
+function shareLink(kind, token) { return `${location.origin}${location.pathname}#/view/${kind}/${token}`; }
+async function openWhatsApp(doc, kind) {
+  const isQ = kind === 'quote';
+  if (!doc.share_token) throw new Error('Sharing is not set up yet — run migration 006 in Supabase');
+  let who = {};
+  try { who = (await api('/e/clients')).find((c) => String(c.id) === String(doc.client_id)) || {}; } catch {}
+  if (!who.name && doc.lead_id) { try { const l = (await api('/e/leads')).find((x) => String(x.id) === String(doc.lead_id)); who = { name: l?.company || l?.name, contact_person: l?.name, phone: l?.phone }; } catch {} }
+  const link = shareLink(kind, doc.share_token), nice = isQ ? 'quotation' : 'invoice';
+  const due = !isQ && doc.due_date ? ` Due by ${new Date(doc.due_date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}.` : '';
+  const msg = `Hello ${who.contact_person || who.name || ''},\n\nPlease find ${nice} ${doc.number} from Redeye Digital Solutions for ${money2(doc.total)}.${due}\n\nView / download PDF: ${link}\n\nThank you!`;
+  const ov = document.createElement('div'); ov.className = 'ov';
+  ov.innerHTML = `<div class="modal" style="max-width:520px"><header><h3>💬 Send ${nice} on WhatsApp</h3><button class="btn ghost sm" id="x">✕</button></header>
+    <div class="body" style="grid-template-columns:1fr"><div><label>WhatsApp number (with country code)</label><input id="ph" type="tel" value="${esc(waNumber(who.phone))}" placeholder="91XXXXXXXXXX"></div>
+    <div><label>Message</label><textarea id="msg" style="min-height:170px">${esc(msg)}</textarea></div>
+    ${doc.status === 'Draft' ? '<label style="text-transform:none;letter-spacing:0;display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink)"><input type="checkbox" id="ms" checked style="width:auto"> Mark as Sent after opening WhatsApp</label>' : ''}
+    <small style="color:var(--mute)">The link opens a private copy of the ${nice} that your client can view and save as PDF — no login needed. Anyone with the link can see it, so share it only with the client.</small><div class="err" id="fe"></div></div>
+    <footer><button class="btn ghost" id="cp">Copy link</button><button class="btn" id="go">Open WhatsApp</button></footer></div>`;
+  document.body.append(ov);
+  $('#x', ov).onclick = () => ov.remove(); ov.onmousedown = (e) => { if (e.target === ov) ov.remove(); };
+  $('#cp', ov).onclick = async () => { try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } };
+  $('#go', ov).onclick = async () => {
+    const n = waNumber($('#ph', ov).value);
+    if (n.length < 11) { $('#fe', ov).textContent = 'Enter the number with country code, e.g. 919876543210'; return; }
+    window.open(`https://wa.me/${n}?text=${encodeURIComponent($('#msg', ov).value)}`, '_blank');
+    if ($('#ms', ov)?.checked) { try { await api(`/e/${isQ ? 'quotes' : 'invoices'}/${doc.id}`, { method: 'PUT', body: { ...doc, status: 'Sent' } }); toast('Marked as Sent'); } catch {} }
+    ov.remove(); route();
+  };
+}
+async function renderPublicDoc(kind, token) {
+  $('#root').innerHTML = '<div class="login"><div class="card"><p>Loading…</p></div></div>';
+  let r = null; try { r = await api('/public/doc', { method: 'POST', body: { kind, token } }); } catch {}
+  if (!r) { $('#root').innerHTML = '<div class="login"><div class="card"><img class="logo" src="icons/logo.png" alt=""><h1>Link not found</h1><p>This link is invalid or no longer available. Please ask Redeye Digital Solutions for a new one.</p></div></div>'; return; }
+  const html = invoiceDoc(r.doc, r.company || {}, r.client || r.lead || {}, kind === 'quote' ? 'quote' : 'invoice')
+    .replace('</body>', '<style>@media print{.noprint{display:none}}</style><div class="noprint" style="position:fixed;top:12px;right:12px"><button onclick="window.print()" style="background:#e03a2f;color:#fff;border:0;border-radius:10px;padding:10px 16px;font:600 14px system-ui;cursor:pointer">⬇ Download / Print PDF</button></div></body>');
+  document.open(); document.write(html); document.close();
+}
 
 // ---------- production panels on the dashboard ----------
 async function productionPanels(view) {
@@ -554,15 +595,8 @@ async function productionPanels(view) {
     <div class="panel"><h3>My content work</h3>${mine.map(line).join('') || '<div style="color:var(--mute)">Nothing assigned to you</div>'}</div></div>`);
 }
 
-async function printInvoice(inv, kind = 'invoice') {
+function invoiceDoc(inv, co, client, kind = 'invoice') {
   const isQ = kind === 'quote';
-  const w = window.open('', '_blank');
-  if (!w) return toast('Allow pop-ups to print');
-  w.document.write('<p style="font:14px system-ui;padding:24px">Preparing invoice…</p>');
-  let co = {}, client = {};
-  try { co = await api('/company'); } catch {}
-  try { client = (await api('/e/clients')).find((c) => String(c.id) === String(inv.client_id)) || {}; } catch {}
-  if (isQ && !client.name && inv.lead_id) { try { const l = (await api('/e/leads')).find((x) => String(x.id) === String(inv.lead_id)); client = { name: l?.company || l?.name }; } catch {} }
   let items = []; try { items = typeof inv.items === 'string' ? JSON.parse(inv.items || '[]') : inv.items || []; } catch {}
   let deds = inv.deductions; if (typeof deds === 'string') { try { deds = JSON.parse(deds); } catch { deds = []; } } deds = deds || [];
   const amt = (i) => (i.amount != null && i.amount !== '' ? +i.amount : (+i.qty || 0) * (+i.rate || 0));
@@ -577,8 +611,7 @@ async function printInvoice(inv, kind = 'invoice') {
   const bank = co.bank || {}, logo = new URL('icons/logo.png', location.href).href;
   const notes = String(inv.notes || '').split('\n').map((x) => x.trim()).filter(Boolean);
   const company = co.name || 'Redeye Digital Solutions';
-  w.document.open();
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(inv.number || 'Invoice')}</title><style>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(inv.number || 'Invoice')}</title><style>
   @page{size:A4;margin:14mm 14mm}
   *{box-sizing:border-box}body{font:13px/1.45 Georgia,'Times New Roman',serif;color:#1a1a1a;margin:0;padding:24px 28px;-webkit-print-color-adjust:exact;print-color-adjust:exact;max-width:800px;margin:0 auto}
   .red{color:#e03a2f}.hd{border-bottom:1.5px solid #e8685d;padding-bottom:10px}.hd img{height:62px;display:block}
@@ -615,7 +648,21 @@ async function printInvoice(inv, kind = 'invoice') {
   ${!isQ && bank.account ? `<div class="sec"><div class="lab">PAYMENT DETAILS</div>Account Holder Name: ${esc(bank.holder)}<br>Bank Name: ${esc(bank.bank)}<br>Branch: ${esc(bank.branch)}<br>Account Number: ${esc(bank.account)}<br>IFSC Code: ${esc(bank.ifsc)}</div>` : ''}
   ${notes.length ? `<div class="sec"><div class="lab">NOTES</div><ul>${notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
   <div class="ft">For ${esc(company)}${co.signature ? `<img src="${esc(co.signature)}" alt="">` : '<br><br>'}<br><b>${esc(co.signatory || 'Authorized Signatory')}</b></div>
-  </body></html>`);
+  </body></html>`;
+}
+
+async function printInvoice(inv, kind = 'invoice') {
+  const isQ = kind === 'quote';
+  const w = window.open('', '_blank');
+  if (!w) return toast('Allow pop-ups to print');
+  w.document.write('<p style="font:14px system-ui;padding:24px">Preparing…</p>');
+  let co = {}, client = {};
+  try { co = await api('/company'); } catch {}
+  try { client = (await api('/e/clients')).find((c) => String(c.id) === String(inv.client_id)) || {}; } catch {}
+  if (isQ && !client.name && inv.lead_id) { try { const l = (await api('/e/leads')).find((x) => String(x.id) === String(inv.lead_id)); client = { name: l?.company || l?.name }; } catch {} }
+  const html = invoiceDoc(inv, co, client, kind);
+  w.document.open();
+  w.document.write(html);
   w.document.close(); w.focus();
   const im = w.document.querySelector('img'); const go = () => setTimeout(() => w.print(), 250);
   if (im && !im.complete) { im.onload = go; im.onerror = go; } else go();
@@ -693,6 +740,8 @@ async function pushPrompt() {
     $('#root').innerHTML = '<div class="login"><div class="card"><h1>Setup needed</h1><p>Open <code>web/config.js</code> and paste your Supabase project URL, anon key and VAPID public key. See README.md.</p></div></div>';
     return;
   }
+  const pv = location.hash.match(/^#\/view\/(inv|quote)\/([0-9a-f-]{36})$/i);
+  if (pv) return renderPublicDoc(pv[1], pv[2]);
   const { data: { session } } = await sb.auth.getSession();
   if (recovering && session) return renderSetPassword();
   if (!session) return renderLogin();

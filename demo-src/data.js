@@ -114,8 +114,8 @@ function seed() {
 }
 let db;
 try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch {}
-if (!db) db = seed();
-else { const fresh = seed(); for (const k of Object.keys(fresh)) if (!db[k]) db[k] = fresh[k]; db.seq = { ...fresh.seq, ...db.seq }; }
+if (!db) { db = seed(); for (const k of ['invoices', 'quotes']) db[k].forEach((r) => { r.share_token = crypto.randomUUID(); }); }
+else { for (const k of ['invoices', 'quotes']) (db[k] || []).forEach((r) => { if (!r.share_token) r.share_token = crypto.randomUUID(); }); const fresh = seed(); for (const k of Object.keys(fresh)) if (!db[k]) db[k] = fresh[k]; db.seq = { ...fresh.seq, ...db.seq }; }
 const save = () => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch {} };
 export const resetDemo = () => { localStorage.removeItem(DB_KEY); localStorage.removeItem(SESSION_KEY); location.reload(); };
 window.resetDemo = resetDemo;
@@ -161,6 +161,7 @@ function payload(key, body, isNew) {
 }
 function businessRules(key, row, old) {
   const u = me();
+  if ((key === 'invoices' || key === 'quotes') && !row.share_token) row.share_token = old?.share_token || crypto.randomUUID();
   if (key === 'invoices') {
     let items = []; try { items = JSON.parse(row.items || '[]'); } catch {}
     row.subtotal = items.reduce((s, i) => s + (i.amount != null ? +i.amount || 0 : (+i.qty || 0) * (+i.rate || 0)), 0);
@@ -225,6 +226,7 @@ export async function api(path, opts = {}) {
     const u = db.users.find((x) => x.role === role);
     session = { id: u.id }; localStorage.setItem(SESSION_KEY, JSON.stringify(session)); return {};
   }
+  if (path === '/public/doc') { const t = body.kind === 'quote' ? db.quotes : db.invoices, d = t.find((x) => x.share_token === body.token); if (!d) return null; return { doc: d, client: db.clients.find((c) => String(c.id) === String(d.client_id)) || null, company: await api('/company') }; }
   if (path === '/logout') { session = null; localStorage.removeItem(SESSION_KEY); return {}; }
   if (path === '/meta') {
     const user = me(), entities = {};
