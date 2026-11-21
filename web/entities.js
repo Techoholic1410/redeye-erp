@@ -1,9 +1,39 @@
 // Entity definitions: drive DB schema, API, permissions and the UI forms/tables.
-// t = field type: text | textarea | number | money | date | month | time | select | ref | multi | items | cadence | email | tel | password
+// t = field type: text | textarea | number | money | date | month | time | select | ref | multi | items | cadence | checklist | email | tel | password
 // {sec:'Title'} renders a section heading. Entity extras: calendar {date}, filters [fields], actions [names handled in app.js]
 const ALL = ['admin', 'manager', 'staff'];
 const MGR = ['admin', 'manager'];
 const ADM = ['admin'];
+
+export const CONTRACT_TEMPLATE = `SERVICE AGREEMENT
+
+This agreement is made on [date] between Redeye Digital Solutions ("Redeye") and [client name] ("Client").
+
+1. Scope of work
+Redeye will provide social-media content services as described in the attached package / quotation: [number] videos and [number] creatives per month, including planning, shooting, editing and delivery.
+
+2. Fees and payment
+The Client will pay [amount] per month. Invoices are payable within [7] days. A [50]% advance is due before work begins. Late payments may pause delivery.
+
+3. Approvals and revisions
+The Client will review and approve content within [2] working days of receiving it. [2] rounds of revisions are included per piece; further revisions are charged separately.
+
+4. Ownership and usage
+Final approved content belongs to the Client once fully paid. Redeye may show the work in its portfolio unless the Client objects in writing. Raw footage remains with Redeye.
+
+5. Client responsibilities
+The Client will provide brand assets, access and timely feedback, and ensure that products, claims and any people on camera are cleared for use.
+
+6. Term and termination
+This agreement runs for [number] months from the start date and may be ended by either party with [30] days written notice. Fees for work already delivered remain payable.
+
+7. Confidentiality
+Both parties will keep each other's non-public business information confidential.
+
+8. General
+This agreement is governed by the laws of India. Disputes will first be discussed in good faith before any legal action.
+
+(Template only: have it reviewed by a lawyer before use.)`;
 
 export const ENTITIES = {
   clients: {
@@ -25,7 +55,7 @@ export const ENTITIES = {
       { k: 'drive_link', l: 'Shared Drive / assets folder link', t: 'text' },
       { k: 'brand_notes', l: 'Brand notes (tone, colours, do & don’t)', t: 'textarea' },
     ],
-    actions: ['client_report'],
+    actions: ['share_portal', 'client_report'],
     perms: { read: ALL, create: MGR, update: MGR, del: ADM },
   },
   leads: {
@@ -46,7 +76,7 @@ export const ENTITIES = {
     perms: { read: ALL, create: MGR, update: MGR, del: ADM },
   },
   projects: {
-    label: 'Projects', icon: '📁', labelField: 'name', board: 'status', filters: ['client_id', 'status'],
+    label: 'Projects', icon: '📁', labelField: 'name', board: 'status', filters: ['client_id', 'status'], actions: ['apply_template'],
     cols: ['name', 'client_id', 'status', 'due_date', 'budget', 'manager_id'],
     fields: [
       { k: 'name', l: 'Project name', t: 'text', req: 1 },
@@ -76,7 +106,7 @@ export const ENTITIES = {
   },
   invoices: {
     label: 'Invoices', icon: '🧾', labelField: 'number', calendar: { date: 'due_date' }, filters: ['client_id', 'status'],
-    cols: ['number', 'client_id', 'issue_date', 'due_date', 'total', 'status'],
+    cols: ['number', 'client_id', 'issue_date', 'due_date', 'total', 'amount_paid', 'status'],
     fields: [
       { k: 'number', l: 'Invoice no. (leave empty for auto, e.g. RD/2026/GC-05)', t: 'text' },
       { k: 'client_id', l: 'Client', t: 'ref', to: 'clients', req: 1 },
@@ -90,12 +120,14 @@ export const ENTITIES = {
       { k: 'carry_forward', l: 'Balance carried forward (optional)', t: 'number' },
       { k: 'videos_committed', l: 'Delivery status: videos committed (optional)', t: 'number' },
       { k: 'videos_delivered', l: 'Delivery status: videos delivered', t: 'number' },
-      { k: 'status', l: 'Status', t: 'select', opts: ['Draft', 'Sent', 'Paid', 'Overdue', 'Cancelled'], def: 'Draft' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Draft', 'Sent', 'Partial', 'Paid', 'Overdue', 'Cancelled'], def: 'Draft' },
+      { k: 'gst_mode', l: 'GST type (blank = no GST split)', t: 'select', opts: ['CGST + SGST (same state)', 'IGST (other state)'] },
       { k: 'subtotal', l: 'Subtotal', t: 'money', ro: 1, auto: 1 },
       { k: 'total', l: 'Payable now', t: 'money', ro: 1, auto: 1 },
+      { k: 'amount_paid', l: 'Received so far', t: 'money', ro: 1, auto: 1 },
       { k: 'notes', l: 'Notes (one bullet per line)', t: 'textarea' },
     ],
-    actions: ['whatsapp_invoice', 'email_invoice'],
+    actions: ['record_payment', 'whatsapp_invoice', 'email_invoice', 'whatsapp_reminder'],
     perms: { read: MGR, create: MGR, update: MGR, del: ADM },
   },
   expenses: {
@@ -107,6 +139,8 @@ export const ENTITIES = {
       { k: 'description', l: 'Description', t: 'text', req: 1 },
       { k: 'amount', l: 'Amount', t: 'money', req: 1 },
       { k: 'project_id', l: 'Project', t: 'ref', to: 'projects' },
+      { k: 'client_id', l: 'Charge to client (for profitability)', t: 'ref', to: 'clients' },
+      { k: 'freelancer_id', l: 'Paid to freelancer / vendor', t: 'ref', to: 'freelancers' },
       { k: 'status', l: 'Status', t: 'select', opts: ['Pending', 'Approved', 'Rejected', 'Reimbursed'], def: 'Pending' },
     ],
     perms: { read: ALL, create: ALL, update: MGR, del: ADM },
@@ -229,7 +263,7 @@ export const ENTITIES = {
       { k: 'cadence', l: 'Posting cadence — slots that become the content calendar', t: 'cadence' },
       { k: 'notes', l: 'Notes', t: 'textarea' },
     ],
-    actions: ['generate_calendar', 'ai_plan_ideas'],
+    actions: ['generate_calendar', 'ai_plan_ideas', 'plan_approval_link'],
     perms: { read: ALL, create: MGR, update: MGR, del: MGR },
   },
   content_items: {
@@ -269,6 +303,7 @@ export const ENTITIES = {
       { k: 'views', l: 'Views', t: 'number' }, { k: 'reach', l: 'Reach', t: 'number' }, { k: 'likes', l: 'Likes', t: 'number' },
       { k: 'comments', l: 'Comments', t: 'number' }, { k: 'shares', l: 'Shares', t: 'number' }, { k: 'saves', l: 'Saves', t: 'number' },
     ],
+    actions: ['approval_link', 'post_pack'],
     perms: { read: ALL, create: ALL, update: ALL, del: MGR },
   },
   shoots: {
@@ -292,7 +327,7 @@ export const ENTITIES = {
       { k: 'shot_list', l: 'Shot list', t: 'textarea' },
       { k: 'notes', l: 'Notes', t: 'textarea' },
     ],
-    actions: ['call_sheet'],
+    actions: ['call_sheet', 'apply_template'],
     perms: { read: ALL, create: MGR, update: ALL, del: MGR },
   },
   meetings: {
@@ -326,7 +361,63 @@ export const ENTITIES = {
       { k: 'status', l: 'Status', t: 'select', opts: ['Available', 'Busy', 'Blacklisted'], def: 'Available' },
       { k: 'notes', l: 'Notes', t: 'textarea' },
     ],
+    actions: ['freelancer_ledger'],
     perms: { read: MGR, create: MGR, update: MGR, del: ADM },
+  },
+  contracts: {
+    label: 'Contracts', icon: '✍️', labelField: 'title', filters: ['client_id', 'status'],
+    cols: ['title', 'client_id', 'status', 'signed_name', 'signed_at'],
+    fields: [
+      { k: 'title', l: 'Contract title', t: 'text', req: 1 },
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Draft', 'Sent', 'Signed', 'Declined'], def: 'Draft' },
+      { k: 'body', l: 'Contract text (the client sees exactly this)', t: 'textarea', def: CONTRACT_TEMPLATE },
+      { k: 'signed_name', l: 'Signed by', t: 'text', ro: 1, auto: 1 },
+      { k: 'signed_at', l: 'Signed at', t: 'text', ro: 1, auto: 1 },
+    ],
+    actions: ['share_contract', 'print_contract'],
+    perms: { read: MGR, create: MGR, update: MGR, del: ADM },
+  },
+  payments: {
+    label: 'Payments received', icon: '💵', labelField: 'reference', filters: ['method'],
+    cols: ['paid_on', 'invoice_id', 'amount', 'method', 'reference'],
+    fields: [
+      { k: 'invoice_id', l: 'Invoice', t: 'ref', to: 'invoices', req: 1 },
+      { k: 'amount', l: 'Amount received', t: 'money', req: 1 },
+      { k: 'paid_on', l: 'Received on', t: 'date', def: 'today', req: 1 },
+      { k: 'method', l: 'Method', t: 'select', opts: ['UPI', 'Bank transfer', 'Cash', 'Cheque', 'Card', 'Other'] },
+      { k: 'reference', l: 'Reference / UTR / cheque no.', t: 'text' },
+      { k: 'notes', l: 'Notes', t: 'textarea' },
+    ],
+    actions: ['receipt'],
+    perms: { read: MGR, create: MGR, update: MGR, del: ADM },
+  },
+  equipment_log: {
+    label: 'Equipment log', icon: '🎒', labelField: 'asset_id', filters: ['asset_id', 'user_id'],
+    cols: ['asset_id', 'user_id', 'out_date', 'due_back', 'returned_on'],
+    fields: [
+      { k: 'asset_id', l: 'Equipment', t: 'ref', to: 'assets', req: 1 },
+      { k: 'user_id', l: 'Taken by', t: 'ref', to: 'users' },
+      { k: 'shoot_id', l: 'For shoot', t: 'ref', to: 'shoots' },
+      { k: 'out_date', l: 'Taken on', t: 'date', def: 'today', req: 1 },
+      { k: 'due_back', l: 'Due back', t: 'date' },
+      { k: 'returned_on', l: 'Returned on', t: 'date' },
+      { k: 'condition_out', l: 'Condition when taken', t: 'text' },
+      { k: 'condition_in', l: 'Condition when returned (mention damage)', t: 'text' },
+      { k: 'notes', l: 'Notes', t: 'textarea' },
+    ],
+    actions: ['mark_returned'],
+    perms: { read: ALL, create: ALL, update: ALL, del: MGR },
+  },
+  task_templates: {
+    label: 'Task templates', icon: '📋', labelField: 'name',
+    cols: ['name', 'description'],
+    fields: [
+      { k: 'name', l: 'Template name', t: 'text', req: 1 },
+      { k: 'description', l: 'When to use it', t: 'text' },
+      { k: 'items', l: 'Checklist: task, days from the start date (negative = before), priority', t: 'checklist' },
+    ],
+    perms: { read: ALL, create: MGR, update: MGR, del: MGR },
   },
   users: {
     label: 'Users & access', icon: '🔐', labelField: 'name',
@@ -344,11 +435,18 @@ export const ENTITIES = {
 
 // Sidebar sections (order = workflow order: win work → plan content → shoot & produce → deliver → bill).
 export const NAV_GROUPS = [
-  ['Sales', ['leads', 'quotes', 'clients', 'packages']],
+  ['Sales', ['leads', 'quotes', 'contracts', 'clients', 'packages']],
   ['Content studio', ['content_plans', 'content_items', 'shoots', 'freelancers']],
-  ['Delivery', ['projects', 'tasks', 'meetings']],
-  ['Finance', ['invoices', 'expenses']],
-  ['People & ops', ['employees', 'leaves', 'attendance', 'assets', 'tickets']],
+  ['Delivery', ['projects', 'tasks', 'task_templates', 'meetings']],
+  ['Finance', ['invoices', 'payments', 'expenses']],
+  ['People & ops', ['employees', 'leaves', 'attendance', 'assets', 'equipment_log', 'tickets']],
   ['Admin', ['users']],
 ];
 export const NAV = NAV_GROUPS.flatMap(([, ks]) => ks);
+
+// Pages that are not plain record lists (built in app.js). roles = who sees them in the menu.
+export const CUSTOM_PAGES = [
+  { k: 'workload', icon: '👷', label: 'Team workload', group: 'Delivery', roles: ALL },
+  { k: 'receivables', icon: '💰', label: 'Receivables', group: 'Finance', roles: MGR },
+  { k: 'profitability', icon: '📈', label: 'Profitability', group: 'Finance', roles: MGR },
+];

@@ -12,7 +12,7 @@ const uid = (n) => `00000000-0000-4000-8000-00000000000${n}`;
 function seed() {
   const items = (a) => JSON.stringify(a);
   return {
-    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4, packages: 3, content_plans: 2, content_items: 13, shoots: 3, meetings: 3, freelancers: 4, quotes: 2 },
+    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4, packages: 3, content_plans: 2, content_items: 13, shoots: 3, meetings: 3, freelancers: 4, quotes: 2, payments: 3, contracts: 2, equipment_log: 2, task_templates: 5, comments: 1, attachments: 1 },
     users: [
       { id: uid(1), name: 'Asha Admin', email: 'admin@demo', role: 'admin', active: 'Yes' },
       { id: uid(2), name: 'Manoj Manager', email: 'manager@demo', role: 'manager', active: 'Yes' },
@@ -41,8 +41,8 @@ function seed() {
       { id: 5, title: 'Fix contact form', project_id: 1, assignee_id: uid(3), priority: 'Urgent', status: 'To do', due_date: day(-1) },
     ],
     invoices: [
-      { id: 1, number: 'RD-INV-0001', client_id: 1, issue_date: day(-25), due_date: day(-5), items: items([{ desc: 'Website design', qty: 1, rate: 100000 }]), tax_percent: 18, status: 'Overdue', subtotal: 100000, total: 118000 },
-      { id: 2, number: 'RD-INV-0002', client_id: 2, issue_date: day(-3), due_date: day(12), items: items([{ desc: 'Ad management (Nov)', qty: 1, rate: 60000 }]), tax_percent: 18, status: 'Paid', subtotal: 60000, total: 70800 },
+      { id: 1, number: 'RD-INV-0001', client_id: 1, issue_date: day(-25), due_date: day(-5), items: items([{ desc: 'Website design', qty: 1, rate: 100000 }]), tax_percent: 18, status: 'Overdue', subtotal: 100000, total: 118000, amount_paid: 40000 },
+      { id: 2, number: 'RD-INV-0002', client_id: 2, issue_date: day(-3), due_date: day(12), items: items([{ desc: 'Ad management (Nov)', qty: 1, rate: 60000 }]), tax_percent: 18, status: 'Paid', subtotal: 60000, total: 70800, amount_paid: 70800 },
       { id: 3, number: 'RD/2026/AR-01', client_id: 1, client_ref: 'Acme Retail – Social Media Branding', issue_date: day(-2), due_date: day(10), items: items([{ desc: 'Social Media Branding & Video Content Production', note: 'Second half of 12-video package — due on delivery of 6 videos', amount: 12500 }]), deductions: [{ label: 'Received — Inv. RD/2026/AR-00', amount: 0 }], tax_percent: 0, carry_forward: 0, videos_committed: 12, videos_delivered: 6, status: 'Sent', subtotal: 12500, total: 12500, notes: 'This invoice covers the second half of the 12-video package.\n6 of 12 videos have been delivered; the remaining 6 are in the pipeline.\nKindly process the payable amount at your earliest convenience.' },
     ],
     expenses: [
@@ -106,6 +106,24 @@ function seed() {
     quotes: [
       { id: 1, number: 'RD/Q/2026-001', client_id: 3, title: 'Clinic brand film + 8 reels', issue_date: day(-3), valid_until: day(11), items: items([{ desc: 'Brand film (2 min)', note: 'Script, shoot, edit', amount: 40000 }, { desc: '8 social reels', amount: 32000 }]), tax_percent: 0, subtotal: 72000, total: 72000, status: 'Sent', notes: '50% advance to start\nBalance on delivery' },
     ],
+    payments: [
+      { id: 1, invoice_id: 2, amount: 70800, paid_on: day(-2), method: 'UPI', reference: 'UPI-48213', created_by: uid(1) },
+      { id: 2, invoice_id: 1, amount: 40000, paid_on: day(-6), method: 'Bank transfer', reference: 'NEFT-99120', created_by: uid(1) },
+    ],
+    contracts: [
+      { id: 1, client_id: 3, title: 'Nova Clinics — content services agreement', status: 'Sent', body: 'SERVICE AGREEMENT\n\n1. Scope: 8 reels and 4 posts per month.\n2. Fees: ₹30,000 per month, invoiced on the 1st.\n3. Approvals: Client reviews within 2 working days.\n\n(Demo contract)', created_by: uid(1) },
+    ],
+    equipment_log: [
+      { id: 1, asset_id: 2, user_id: uid(3), out_date: day(-3), due_back: day(-1), returned_on: null, condition_out: 'Good', created_by: uid(3) },
+    ],
+    task_templates: [
+      { id: 1, name: 'Client onboarding', description: 'Steps after a new client signs', items: [{ title: 'Sign agreement & collect advance', days: 2, priority: 'High' }, { title: 'Collect brand assets, logos & guidelines', days: 3, priority: 'High' }, { title: 'Kickoff meeting with client', days: 5, priority: 'Medium' }, { title: 'Create month-1 content plan', days: 7, priority: 'High' }] },
+      { id: 2, name: 'Shoot day checklist', description: 'Dates relative to the shoot date', items: [{ title: 'Confirm location & permissions', days: -3, priority: 'High' }, { title: 'Charge batteries, format cards, pack kit', days: -1, priority: 'Medium' }, { title: 'Share call sheet with crew and client', days: -1, priority: 'Medium' }, { title: 'Share footage with editor', days: 1, priority: 'High' }] },
+      { id: 3, name: 'Monthly content cycle', description: 'Repeat every month for a retainer client', items: [{ title: 'Draft content plan for the month', days: 1, priority: 'High' }, { title: 'Client approval of the plan', days: 4, priority: 'High' }, { title: 'Send monthly report to client', days: 28, priority: 'Medium' }] },
+      { id: 4, name: 'Month-end close', description: 'Money housekeeping', items: [{ title: 'Follow up unpaid invoices', days: 1, priority: 'High' }, { title: 'Pay freelancers', days: 3, priority: 'High' }] },
+    ],
+    comments: [],
+    attachments: [],
     notifications: [
       { id: 1, user_id: uid(1), title: 'Leave request', body: 'Sana Staff: Casual', url: '#/leaves', read: false, created_at: now() },
       { id: 2, user_id: uid(3), title: 'New task assigned', body: 'Fix contact form', url: '#/tasks', read: false, created_at: now() },
@@ -114,8 +132,11 @@ function seed() {
 }
 let db;
 try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch {}
-if (!db) { db = seed(); for (const k of ['invoices', 'quotes']) db[k].forEach((r) => { r.share_token = crypto.randomUUID(); }); }
-else { for (const k of ['invoices', 'quotes']) (db[k] || []).forEach((r) => { if (!r.share_token) r.share_token = crypto.randomUUID(); }); const fresh = seed(); for (const k of Object.keys(fresh)) if (!db[k]) db[k] = fresh[k]; db.seq = { ...fresh.seq, ...db.seq }; }
+if (!db) db = seed();
+else { const fresh = seed(); for (const k of Object.keys(fresh)) if (!db[k]) db[k] = fresh[k]; db.seq = { ...fresh.seq, ...db.seq }; }
+for (const [k, f] of [['invoices', 'share_token'], ['quotes', 'share_token'], ['content_items', 'share_token'], ['content_plans', 'share_token'], ['contracts', 'share_token'], ['clients', 'portal_token']])
+  (db[k] || []).forEach((r) => { if (!r[f]) r[f] = crypto.randomUUID(); });
+(db.invoices || []).forEach((r) => { if (r.amount_paid == null) r.amount_paid = 0; });
 const save = () => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch {} };
 save();   // persist seed data (incl. share tokens) so links stay stable between page loads
 export const resetDemo = () => { localStorage.removeItem(DB_KEY); localStorage.removeItem(SESSION_KEY); location.reload(); };
@@ -214,6 +235,19 @@ function businessRules(key, row, old) {
   if (key === 'tickets' && !old) notify(byRole('admin', 'manager').filter((i) => i !== u.id), 'New support ticket', row.subject, '#/tickets');
   if (key === 'leads' && row.stage === 'Won' && old?.stage !== 'Won') notify(byRole('admin', 'manager'), '🎉 Lead won', row.name, '#/leads');
 }
+function syncInvoice(id) {
+  const inv = db.invoices.find((i) => String(i.id) === String(id)); if (!inv) return;
+  const paid = db.payments.filter((p) => String(p.invoice_id) === String(id)).reduce((a, p) => a + (+p.amount || 0), 0);
+  inv.amount_paid = paid;
+  if (inv.status === 'Cancelled') return;
+  if (inv.total > 0 && paid >= inv.total) inv.status = 'Paid';
+  else if (paid > 0) inv.status = ['Paid', 'Draft', 'Sent'].includes(inv.status) ? 'Partial' : inv.status;
+  else if (['Paid', 'Partial'].includes(inv.status)) inv.status = 'Sent';
+}
+function afterWrite(key, row) {
+  if (key === 'payments') { syncInvoice(row.invoice_id); notify(byRole('admin', 'manager').filter((i) => i !== me().id), '💰 Payment received', `${db.invoices.find((i) => String(i.id) === String(row.invoice_id))?.number} — ${row.amount}`, '#/payments'); }
+  if (key === 'equipment_log') { const a = db.assets.find((x) => String(x.id) === String(row.asset_id)); if (a) { a.status = row.returned_on ? 'In stock' : 'In use'; a.assigned_to = row.returned_on ? null : row.user_id; } }
+}
 const own = (key) => ENTITIES[key].ownCol;
 const visible = (key, rows) => (me().role === 'staff' && own(key) ? rows.filter((r) => r[own(key)] === me().id) : rows);
 
@@ -241,7 +275,7 @@ export async function api(path, opts = {}) {
     return { user, entities, groups };
   }
   if (path === '/me/password') { if (String(body.next || '').length < 8) throw new Error('New password must be at least 8 characters'); return {}; }
-  if ((m = path.match(/^\/lookup\/(\w+)$/))) return db[m[1]].filter((x) => x.active !== 'No').map((x) => ({ id: x.id, label: x.name ?? x.title })).sort((a, b) => String(a.label).localeCompare(String(b.label)));
+  if ((m = path.match(/^\/lookup\/(\w+)$/))) return db[m[1]].filter((x) => x.active !== 'No').map((x) => ({ id: x.id, label: x.name ?? x.title ?? x.number })).sort((a, b) => String(a.label).localeCompare(String(b.label)));
   if ((m = path.match(/^\/e\/(\w+)\/export$/))) {
     can(m[1], 'read');
     const fields = ENTITIES[m[1]].fields.filter((f) => f.k && f.t !== 'items' && f.t !== 'deductions' && f.t !== 'multi' && f.t !== 'cadence' && !f.virtual);
@@ -269,9 +303,11 @@ export async function api(path, opts = {}) {
       const defaults = Object.fromEntries(e.fields.filter((f) => f.def !== undefined && f.def !== 'today').map((f) => [f.k, f.def]));
       const out = { id: db.seq[key], created_by: me().id, created_at: now(), ...defaults, ...row };
       for (const f of e.fields) if (f.def === 'today' && out[f.k] == null) out[f.k] = day();
-      if (key === 'invoices') { out.status = out.status || 'Draft'; }
+      if (key === 'invoices') { out.status = out.status || 'Draft'; out.amount_paid = 0; }
+      if (['invoices', 'quotes', 'content_items', 'content_plans', 'contracts'].includes(key)) out.share_token = crypto.randomUUID();
+      if (key === 'clients') out.portal_token = crypto.randomUUID();
       businessRules(key, out, null);
-      db[t].push(out); save(); return out;
+      db[t].push(out); afterWrite(key, out); save(); return out;
     }
     if (method === 'PUT') {
       can(key, 'update');
@@ -279,16 +315,64 @@ export async function api(path, opts = {}) {
       if (key === 'users' && old.id === me().id && ((body.role && body.role !== 'admin') || body.active === 'No')) throw new Error("You can't demote or deactivate yourself");
       const row = payload(key, body, false), out = { ...old, ...row };
       if (key !== 'users') businessRules(key, out, old);
-      db[t][db[t].indexOf(old)] = out; save(); return out;
+      if (key === 'contracts' && old.status === 'Signed') throw new Error('A signed contract cannot be edited. Create a new one instead.');
+      db[t][db[t].indexOf(old)] = out; afterWrite(key, out); save(); return out;
     }
     if (method === 'DELETE') {
       can(key, 'del');
       if (key === 'users' && id === me().id) throw new Error("You can't delete yourself");
       if (key === 'clients' && (db.invoices.some((i) => String(i.client_id) === String(id)))) throw new Error('This record is used elsewhere, so it can’t be deleted');
       const i = db[t].findIndex((r) => String(r.id) === String(id)); if (i < 0) throw new Error('Not allowed');
-      db[t].splice(i, 1); save(); return {};
+      const gone = db[t].splice(i, 1)[0]; if (key === 'payments') syncInvoice(gone.invoice_id); save(); return {};
     }
   }
+  if (path === '/calendar/token') { db.calToken ||= crypto.randomUUID(); save(); return db.calToken; }
+  if (path === '/public/approval') {
+    let items = [], plan = null, client = null;
+    if (body.kind === 'item') { const it = db.content_items.find((x) => x.share_token === body.token); if (it) { items = [it]; client = db.clients.find((c) => c.id === it.client_id); } }
+    else { const p = db.content_plans.find((x) => x.share_token === body.token); if (p) { plan = { title: p.title, month: p.month, objective: p.objective }; items = db.content_items.filter((x) => x.plan_id === p.id); client = db.clients.find((c) => c.id === p.client_id); } }
+    if (!client) return null;
+    return { kind: body.kind, client: { name: client.name }, company: { name: 'Redeye Digital Solutions' }, plan, items: items.map(({ id, title, format, platform, pillar, publish_date, publish_time, concept, script, caption, hashtags, asset_link, status, client_status, client_feedback }) => ({ id, title, format, platform, pillar, publish_date, publish_time, concept, script, caption, hashtags, asset_link, status, client_status, client_feedback })) };
+  }
+  if (path === '/public/respond') {
+    const it = db.content_items.find((x) => x.id === body.item_id); if (!it) throw new Error('This link is not valid');
+    if (body.decision === 'changes' && !String(body.comment || '').trim()) throw new Error('Please tell us what to change');
+    it.client_status = body.decision === 'approve' ? 'Approved' : 'Changes requested';
+    if (body.decision === 'approve' && ['Client review', 'Changes needed', 'Internal review'].includes(it.status)) it.status = 'Approved';
+    if (body.decision === 'changes' && ['Client review', 'Approved', 'Scheduled'].includes(it.status)) it.status = 'Changes needed';
+    if (String(body.comment || '').trim()) it.client_feedback = (it.client_feedback ? it.client_feedback + '\n' : '') + `[${body.who || 'Client'}] ${body.comment}`;
+    notify(byRole('admin', 'manager'), body.decision === 'approve' ? '✅ Client approved' : '✏️ Client wants changes', it.title, '#/content_items'); save(); return { ok: true, status: it.status };
+  }
+  if (path === '/public/portal') {
+    const c = db.clients.find((x) => x.portal_token === body.token); if (!c) return null;
+    return { client: { name: c.name }, company: { name: 'Redeye Digital Solutions', email: 'info@redeyedigital.in', phone: '7708037165', tagline: 'Content that catches the eye.' },
+      upcoming: db.content_items.filter((i) => i.client_id === c.id && i.status !== 'Published').map((i) => ({ id: i.id, title: i.title, format: i.format, platform: i.platform, publish_date: i.publish_date, status: i.status, client_status: i.client_status, share_token: i.share_token })),
+      published: db.content_items.filter((i) => i.client_id === c.id && i.status === 'Published').map((i) => ({ title: i.title, format: i.format, platform: i.platform, date: i.posted_on || i.publish_date, url: i.posted_url, views: i.views, reach: i.reach, likes: i.likes, comments: i.comments, shares: i.shares })),
+      invoices: db.invoices.filter((i) => i.client_id === c.id && !['Draft', 'Cancelled'].includes(i.status)).map((i) => ({ number: i.number, issue_date: i.issue_date, due_date: i.due_date, total: i.total, amount_paid: i.amount_paid, status: i.status, share_token: i.share_token })),
+      shoots: db.shoots.filter((s2) => s2.client_id === c.id && s2.shoot_date >= day() && s2.status !== 'Cancelled').map((s2) => ({ title: s2.title, date: s2.shoot_date, call_time: s2.call_time, location: s2.location, status: s2.status })),
+      package: (db.packages.find((p) => p.client_id === c.id && p.status === 'Active') ? (({ name, videos_per_month, posts_per_month }) => ({ name, videos: videos_per_month, posts: posts_per_month }))(db.packages.find((p) => p.client_id === c.id && p.status === 'Active')) : null) };
+  }
+  if (path === '/public/contract') {
+    const k = db.contracts.find((x) => x.share_token === body.token); if (!k) return null;
+    return { contract: { title: k.title, body: k.body, status: k.status, signed_name: k.signed_name, signed_at: k.signed_at }, client: { name: db.clients.find((c) => c.id === k.client_id)?.name }, company: { name: 'Redeye Digital Solutions' } };
+  }
+  if (path === '/public/sign') {
+    const k = db.contracts.find((x) => x.share_token === body.token); if (!k) throw new Error('This link is not valid');
+    if (k.status === 'Signed') throw new Error('Already signed'); if (String(body.who || '').trim().length < 3) throw new Error('Please type your full name');
+    k.status = 'Signed'; k.signed_name = body.who.trim(); k.signed_at = now(); notify(byRole('admin', 'manager'), '✍️ Contract signed', k.title, '#/contracts'); save(); return { ok: true };
+  }
+  if (path === '/comments' && method === 'POST') { db.seq.comments++; const c = { id: db.seq.comments, entity: body.entity, record_id: body.record_id, body: body.body, mentions: body.mentions || [], created_by: me().id, created_at: now() };
+    db.comments.push(c); for (const u of (body.mentions || []).filter((x) => x !== me().id)) notify([u], 'You were mentioned by ' + me().name, String(body.body).slice(0, 120), '#/' + body.entity); save(); return c; }
+  if (path === '/comments') return db.comments.filter((c) => c.entity === body.entity && String(c.record_id) === String(body.record_id));
+  if ((m = path.match(/^\/comments\/(\d+)$/)) && method === 'DELETE') { db.comments = db.comments.filter((c) => String(c.id) !== m[1]); save(); return {}; }
+  if (path === '/attachments' && method === 'POST') {
+    const f = body.file; if (f.size > 300000) throw new Error('Demo accepts files up to 300 KB');
+    const data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+    db.seq.attachments++; const a = { id: db.seq.attachments, entity: body.entity, record_id: body.record_id, name: f.name, path: data, size: f.size, mime: f.type, created_by: me().id, created_at: now() }; db.attachments.push(a); save(); return a;
+  }
+  if (path === '/attachments') return db.attachments.filter((a) => a.entity === body.entity && String(a.record_id) === String(body.record_id));
+  if (path === '/attachments/url') return { url: body.path };
+  if ((m = path.match(/^\/attachments\/(\d+)$/)) && method === 'DELETE') { db.attachments = db.attachments.filter((a) => String(a.id) !== m[1]); save(); return {}; }
   if (path === '/attendance/today') return db.attendance.find((a) => a.user_id === me().id && a.date === day()) || null;
   if (path === '/attendance/toggle') {
     const t = new Date().toTimeString().slice(0, 5); let a = db.attendance.find((x) => x.user_id === me().id && x.date === day());
@@ -305,6 +389,8 @@ export async function api(path, opts = {}) {
     if (t === 'shoot_plan') { const by = {}; (body.items || []).forEach((x) => (by[x.client_id] ||= []).push(x)); return { data: Object.entries(by).map(([cid, xs], n) => ({ title: `${xs[0].client} - batch shoot`, client_id: +cid, date: day(3 + n * 3), call_time: '09:30', item_ids: xs.map((x) => x.id), reason: 'Batched by client, 3+ days ahead of first publish date. (Demo sample)' })) }; }
     return { text: 'This is a demo reply. In the live app, Claude answers here using your clients, plans and shoots.' };
   }
+  if (path === '/company' && method === 'PUT') { db.company = { ...body }; save(); return db.company; }
+  if (path === '/company' && db.company) return db.company;
   if (path === '/company') return { name: 'Redeye Digital Solutions', tagline: 'Content that catches the eye.', address: ['4/2A, Alamu Colony, Chinnampalayam,', 'Pollachi – 642003'], email: 'info@redeyedigital.in', phone: '7708037165', bank: { holder: 'Demo Account Holder', bank: 'Demo Bank', branch: 'Demo Branch', account: '0000000000000', ifsc: 'DEMO0000000' }, signatory: 'Authorized Signatory' };
   if (path === '/dashboard') {
     const r = me().role, mth = day().slice(0, 7), sum = (rows, k) => rows.reduce((s, x) => s + (+x[k] || 0), 0);
@@ -317,10 +403,11 @@ export async function api(path, opts = {}) {
       pendingLeaves: r === 'staff' ? 0 : db.leaves.filter((x) => x.status === 'Pending').length,
     };
     if (r !== 'staff') {
-      const out_ = db.invoices.filter((x) => ['Sent', 'Overdue'].includes(x.status)), od = db.invoices.filter((x) => x.status === 'Overdue');
-      const paid = (m_) => sum(db.invoices.filter((x) => x.status === 'Paid' && String(x.issue_date).startsWith(m_)), 'total');
+      const out_ = db.invoices.filter((x) => ['Sent', 'Overdue', 'Partial'].includes(x.status)), od = db.invoices.filter((x) => x.status === 'Overdue' || (x.status === 'Partial' && x.due_date < day()));
+      const bal = (rows) => rows.reduce((a, x) => a + ((+x.total || 0) - (+x.amount_paid || 0)), 0);
+      const paid = (m_) => sum(db.payments.filter((x) => String(x.paid_on).startsWith(m_)), 'amount');
       const exp = (m_) => sum(db.expenses.filter((x) => ['Approved', 'Reimbursed'].includes(x.status) && String(x.date).startsWith(m_)), 'amount');
-      Object.assign(out, { outstanding: { v: sum(out_, 'total'), n: out_.length }, overdue: { v: sum(od, 'total'), n: od.length }, revenueMonth: paid(mth), expenseMonth: exp(mth),
+      Object.assign(out, { outstanding: { v: bal(out_), n: out_.length }, overdue: { v: bal(od), n: od.length }, revenueMonth: paid(mth), expenseMonth: exp(mth),
         pendingExpenses: db.expenses.filter((x) => x.status === 'Pending').length,
         trend: [5, 4, 3, 2, 1, 0].map((i) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); const m_ = d.toISOString().slice(0, 7); return { m: m_, revenue: i === 0 ? paid(m_) : 18000 * (6 - i) + (i % 2) * 9000, expenses: i === 0 ? exp(m_) : 7000 + (i % 3) * 4000 }; }) });
     }

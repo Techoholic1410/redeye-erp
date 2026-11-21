@@ -43,7 +43,7 @@ function payload(key, body, isNew) {
     if (v !== null) {
       if (f.t === 'number' || f.t === 'money') { v = Number(v); if (!Number.isFinite(v)) throw new Error(`${f.l} must be a number`); }
       else if (f.t === 'ref' && f.to !== 'users') v = Number(v);
-      else if (f.t === 'items' || f.t === 'deductions' || f.t === 'multi' || f.t === 'cadence') v = typeof v === 'string' ? JSON.parse(v) : v;
+      else if (f.t === 'items' || f.t === 'deductions' || f.t === 'multi' || f.t === 'cadence' || f.t === 'checklist') v = typeof v === 'string' ? JSON.parse(v) : v;
     }
     if (f.req && v === null) throw new Error(`${f.l} is required`);
     if (isNew && v === null) continue;            // let the database default apply
@@ -99,7 +99,7 @@ export async function api(path, opts = {}) {
   }
 
   if ((m = path.match(/^\/lookup\/(\w+)$/))) {
-    const col = { users: 'name', clients: 'name', projects: 'name', assets: 'name', leads: 'name', content_plans: 'title', shoots: 'title' }[m[1]];
+    const col = { users: 'name', clients: 'name', projects: 'name', assets: 'name', leads: 'name', content_plans: 'title', shoots: 'title', invoices: 'number', freelancers: 'name' }[m[1]];
     if (!col) throw new Error('Unknown lookup');
     const t = [m[1] === 'users' ? 'profiles' : m[1]];
     let qb = sb.from(t[0]).select(`id,label:${col}`).order(col);
@@ -108,7 +108,7 @@ export async function api(path, opts = {}) {
   }
 
   if ((m = path.match(/^\/e\/(\w+)\/export$/))) {
-    const key = m[1], fields = ENTITIES[key].fields.filter((f) => f.k && f.t !== 'items' && f.t !== 'deductions' && f.t !== 'multi' && f.t !== 'cadence' && !f.virtual);
+    const key = m[1], fields = ENTITIES[key].fields.filter((f) => f.k && f.t !== 'items' && f.t !== 'deductions' && f.t !== 'multi' && f.t !== 'cadence' && f.t !== 'checklist' && !f.virtual);
     const rows = ok(await sb.from(table(key)).select('*').order('created_at', { ascending: false }).limit(10000));
     return [fields.map((f) => csvEsc(f.l)).join(','), ...rows.map((r) => fields.map((f) => csvEsc(r[f.k])).join(','))].join('\n');
   }
@@ -147,7 +147,38 @@ export async function api(path, opts = {}) {
     if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch {} throw new Error(msg); }
     return data;
   }
-  if (path === '/company') { const { data } = await sb.from('company_profile').select('data').eq('id', 1).maybeSingle(); return data?.data || {}; }
+  if (path === '/company') {
+    if (method === 'PUT') { ok(await sb.from('company_profile').upsert({ id: 1, data: body })); return body; }
+    const { data } = await sb.from('company_profile').select('data').eq('id', 1).maybeSingle(); return data?.data || {};
+  }
+  if (path === '/calendar/token') return ok(await sb.rpc('my_calendar_token'));
+  if (path === '/public/approval') return ok(await sb.rpc('public_approval', { kind: body.kind, tok: body.token }));
+  if (path === '/public/respond') return ok(await sb.rpc('respond_approval', { kind: body.kind, tok: body.token, item_id: body.item_id, decision: body.decision, who: body.who || '', comment: body.comment || '' }));
+  if (path === '/public/portal') return ok(await sb.rpc('public_portal', { tok: body.token }));
+  if (path === '/public/contract') return ok(await sb.rpc('public_contract', { tok: body.token }));
+  if (path === '/public/sign') return ok(await sb.rpc('sign_contract', { tok: body.token, who: body.who }));
+
+  if (path === '/comments') {
+    if (method === 'POST') return ok(await sb.from('comments').insert({ entity: body.entity, record_id: body.record_id, body: body.body, mentions: body.mentions || [] }).select().single());
+    return ok(await sb.from('comments').select('*').eq('entity', body.entity).eq('record_id', body.record_id).order('id'));
+  }
+  if ((m = path.match(/^\/comments\/(\d+)$/)) && method === 'DELETE') { ok(await sb.from('comments').delete().eq('id', m[1])); return {}; }
+
+  if (path === '/attachments') {
+    if (method === 'POST') {
+      const f = body.file, safe = String(f.name).replace(/[^\w.\-]+/g, '_'), pth = `${body.entity}/${body.record_id}/${Date.now()}-${safe}`;
+      const up = await sb.storage.from('files').upload(pth, f, { contentType: f.type || 'application/octet-stream' });
+      if (up.error) throw new Error(up.error.message);
+      return ok(await sb.from('attachments').insert({ entity: body.entity, record_id: body.record_id, name: f.name, path: pth, size: f.size, mime: f.type }).select().single());
+    }
+    return ok(await sb.from('attachments').select('*').eq('entity', body.entity).eq('record_id', body.record_id).order('id'));
+  }
+  if (path === '/attachments/url') { const r = await sb.storage.from('files').createSignedUrl(body.path, 3600); if (r.error) throw new Error(r.error.message); return { url: r.data.signedUrl }; }
+  if ((m = path.match(/^\/attachments\/(\d+)$/)) && method === 'DELETE') {
+    const row = ok(await sb.from('attachments').select('path').eq('id', m[1]).maybeSingle());
+    if (row) await sb.storage.from('files').remove([row.path]);
+    ok(await sb.from('attachments').delete().eq('id', m[1])); return {};
+  }
   if (path === '/attendance/today') return ok(await sb.rpc('attendance_today'));
   if (path === '/attendance/toggle') return ok(await sb.rpc('attendance_toggle'));
   if (path === '/dashboard') return ok(await sb.rpc('dashboard'));

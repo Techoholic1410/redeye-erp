@@ -6,6 +6,8 @@ const money2 = (n) => new Intl.NumberFormat(LOCALE, { style: 'currency', currenc
 const today = () => new Date().toISOString().slice(0, 10);
 
 import { api, sb, configured } from './data.js';
+import { SUPABASE_URL } from './config.js';
+import { CUSTOM_PAGES } from './entities.js';
 
 let meta = null, lookups = {}, notifTimer = null, installEvt = null, notifChannel = null;
 
@@ -71,7 +73,7 @@ async function boot() {
       <button class="iconbtn" id="bell" aria-label="Notifications">🔔<span class="badge" id="bb" hidden>0</span></button></div>
       <div id="view"></div></div></div>`;
   const link = (k, i, l) => `<a href="#/${k}" data-k="${k}"><span>${i}</span>${esc(l)}</a>`;
-  $('#nav').innerHTML = link('dashboard', '📊', 'Dashboard') + meta.groups.map(([g, ks]) => `<div class="grp">${esc(g)}</div>` + ks.map((k) => link(k, meta.entities[k].icon, meta.entities[k].label)).join('')).join('') + '<div class="grp">Account</div>' + link('assistant', '✨', 'Ask Claude') + link('settings', '⚙️', 'Settings');
+  $('#nav').innerHTML = link('dashboard', '📊', 'Dashboard') + meta.groups.map(([g, ks]) => `<div class="grp">${esc(g)}</div>` + ks.map((k) => link(k, meta.entities[k].icon, meta.entities[k].label)).join('') + CUSTOM_PAGES.filter((c) => c.group === g && c.roles.includes(meta.user.role)).map((c) => link(c.k, c.icon, c.label)).join('')).join('') + '<div class="grp">Account</div>' + link('assistant', '✨', 'Ask Claude') + link('settings', '⚙️', 'Settings');
   $('#lo').onclick = async (e) => { e.preventDefault(); try { await api('/logout', { method: 'POST' }); } catch {} logoutLocal(); };
   $('#bg').onclick = () => toggleSide();
   $('#bell').onclick = openNotifs;
@@ -86,7 +88,7 @@ function toggleSide(force) {
   s.classList.toggle('open', open); $('.scrim')?.remove();
   if (open) { const d = document.createElement('div'); d.className = 'scrim'; d.onclick = () => toggleSide(false); document.body.append(d); }
 }
-window.addEventListener('hashchange', () => { if (/^#\/view\//.test(location.hash)) return location.reload(); if (meta) route(); });
+window.addEventListener('hashchange', () => { if (window._pub || /^#\/(view|approve|portal)\//.test(location.hash)) return location.reload(); if (meta) route(); });
 
 async function route() {
   toggleSide(false);
@@ -96,6 +98,9 @@ async function route() {
   try {
     if (k === 'dashboard') { $('#title').textContent = 'Dashboard'; await dashboard(view); }
     else if (k === 'settings') { $('#title').textContent = 'Settings'; settings(view); }
+    else if (k === 'workload') { $('#title').textContent = 'Team workload'; await workloadView(view); }
+    else if (k === 'receivables' && meta.user.role !== 'staff') { $('#title').textContent = 'Receivables'; await receivablesView(view); }
+    else if (k === 'profitability' && meta.user.role !== 'staff') { $('#title').textContent = 'Client profitability'; await profitabilityView(view); }
     else if (k === 'assistant') { $('#title').textContent = 'Ask Claude'; await assistantView(view); }
     else if (meta.entities[k]) { $('#title').textContent = meta.entities[k].label; await entityView(view, k); }
     else location.hash = '#/dashboard';
@@ -285,6 +290,7 @@ function form(key, row, after, preset = {}) {
     if (f.t === 'money' || f.t === 'number') return wrap(`<input name="${f.k}" type="number" step="any" value="${esc(v)}" ${dis}>`);
     if (f.t === 'multi') { let sel = row?.[f.k] ?? []; if (typeof sel === 'string') { try { sel = JSON.parse(sel); } catch { sel = []; } } sel = sel.map(String);
       return wrap(`<div class="multi" data-multi="${f.k}">${(lookups[f.to] || []).map((o) => `<label><input type="checkbox" value="${esc(o.id)}" ${sel.includes(String(o.id)) ? 'checked' : ''} ${dis}>${esc(o.label)}</label>`).join('') || '<small>Nothing to pick yet</small>'}</div>`, 1); }
+    if (f.t === 'checklist') return `<div class="cad"><label>${esc(f.l)}</label><div id="ckr"></div>${dis ? '' : '<button type="button" class="btn ghost sm" id="addck">+ Add task</button>'}</div>`;
     if (f.t === 'cadence') return `<div class="cad"><label>${esc(f.l)}</label><div id="cadr"></div>${dis ? '' : '<button type="button" class="btn ghost sm" id="addcad">+ Add slot</button>'}</div>`;
     if (f.t === 'itempick') return `<div class="full"><label>${esc(f.l)}</label><div class="pick" id="pick"><small>Choose a client first</small></div></div>`;
     if (f.t === 'month') return wrap(`<input name="${f.k}" type="month" value="${esc(v)}" ${dis}>`);
@@ -338,6 +344,9 @@ function form(key, row, after, preset = {}) {
     if ($('#adddd', ov)) $('#adddd', ov).onclick = () => { deds.push({ label: 'Advance received', amount: '' }); drawD(); };
     ['tax_percent', 'carry_forward'].forEach((n) => ov.querySelector(`[name=${n}]`)?.addEventListener('input', recalc));
   }
+  const ckF = fields.find((f) => f.t === 'checklist');
+  const getChecklist = ckF ? checklistEditor(ov, ckF, row) : null;
+  if (!isNew && (COMMENTABLE.has(key) || ATTACHABLE.has(key))) { $('.body', ov).insertAdjacentHTML('beforeend', '<div class="full extras" id="extras"></div>'); renderExtras(ov, key, row); }
   // posting-cadence editor (content plans)
   let cad = [];
   if (fields.some((f) => f.t === 'cadence')) {
@@ -371,7 +380,7 @@ function form(key, row, after, preset = {}) {
     ov.querySelector('[name=client_id]')?.addEventListener('change', () => { picked = new Set(); drawP(); });
   }
   aiFormTools(key, ov, { allItems: () => allItems, picked: () => picked });
-  ov.querySelectorAll('[data-act]').forEach((b) => (b.onclick = async () => { try { await ACTIONS[b.dataset.act].run(row, { close, after }); } catch (err) { $('#fe', ov).textContent = err.message; } }));
+  ov.querySelectorAll('[data-act]').forEach((b) => (b.onclick = async () => { try { await ACTIONS[b.dataset.act].run(row, { close, after, key }); } catch (err) { $('#fe', ov).textContent = err.message; } }));
 
   ov.querySelector('form').onsubmit = async (ev) => {
     ev.preventDefault();
@@ -380,6 +389,7 @@ function form(key, row, after, preset = {}) {
     if (itemsF) { body.items = lines.filter((l) => l.desc || +l.amount).map((l) => ({ desc: l.desc, note: l.note, amount: +l.amount || 0 })); body.deductions = deds.filter((d) => +d.amount).map((d) => ({ label: d.label || 'Received', amount: +d.amount })); }
     ov.querySelectorAll('[data-multi]').forEach((bx) => (body[bx.dataset.multi] = [...bx.querySelectorAll('input:checked')].map((i) => (/^\d+$/.test(i.value) ? Number(i.value) : i.value))));
     if (fields.some((f) => f.t === 'cadence')) body.cadence = cad.filter((c) => c.days.length);
+    if (getChecklist) body[ckF.k] = getChecklist();
     try {
       if (key === 'shoots') { const clash = await shootConflicts(body, row?.id); if (clash.length && !confirm('Possible clash on that day:\n\n' + clash.join('\n') + '\n\nSave anyway?')) return; }
       const saved = await api(isNew ? `/e/${key}` : `/e/${key}/${row.id}`, { method: isNew ? 'POST' : 'PUT', body });
@@ -742,6 +752,415 @@ async function assistantView(view) {
 }
 
 
+// ---------- sharing helpers ----------
+function inWords(n) {
+  n = Math.round(+n || 0);
+  if (n === 0) return 'Zero';
+  const a = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const two = (x) => (x < 20 ? a[x] : b[Math.floor(x / 10)] + (x % 10 ? ' ' + a[x % 10] : ''));
+  const three = (x) => (x >= 100 ? a[Math.floor(x / 100)] + ' Hundred' + (x % 100 ? ' ' + two(x % 100) : '') : two(x));
+  const parts = [[10000000, 'Crore'], [100000, 'Lakh'], [1000, 'Thousand']];
+  let out = '';
+  for (const [v, l] of parts) { if (n >= v) { out += three(Math.floor(n / v)) + ' ' + l + ' '; n %= v; } }
+  return (out + (n ? three(n) : '')).trim();
+}
+const appBase = () => `${location.origin}${location.pathname}`;
+const NICE_DATE = (d) => (d ? new Date(String(d).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+
+// One modal for sending a link by WhatsApp, Gmail or copy. opts: title, phone, email, subject, message, link, markLabel, onSent
+function shareModal(o) {
+  const ov = document.createElement('div'); ov.className = 'ov';
+  ov.innerHTML = `<div class="modal" style="max-width:560px"><header><h3>${esc(o.title)}</h3><button class="btn ghost sm" id="x">✕</button></header>
+    <div class="body" style="grid-template-columns:1fr">
+      <div><label>WhatsApp number (with country code)</label><input id="ph" type="tel" value="${esc(waNumber(o.phone))}" placeholder="91XXXXXXXXXX"></div>
+      <div><label>Email (optional)</label><input id="em" type="email" value="${esc(o.email || '')}" placeholder="client@example.com"></div>
+      <div><label>Message</label><textarea id="msg" style="min-height:170px">${esc(o.message)}</textarea></div>
+      ${o.markLabel ? `<label style="text-transform:none;letter-spacing:0;display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink)"><input type="checkbox" id="ms" checked style="width:auto"> ${esc(o.markLabel)}</label>` : ''}
+      <small style="color:var(--mute)">Anyone with the link can open it, so send it only to the client.</small><div class="err" id="fe"></div></div>
+    <footer><button class="btn ghost" id="cp">Copy link</button><button class="btn ghost" id="gm">Open Gmail</button><button class="btn" id="go">Open WhatsApp</button></footer></div>`;
+  document.body.append(ov);
+  const close = () => ov.remove();
+  $('#x', ov).onclick = close; ov.onmousedown = (e) => { if (e.target === ov) close(); };
+  $('#cp', ov).onclick = async () => { try { await navigator.clipboard.writeText(o.link); toast('Link copied'); } catch { toast(o.link); } };
+  const sent = async () => { if ($('#ms', ov)?.checked && o.onSent) { try { await o.onSent(); } catch {} } close(); };
+  $('#go', ov).onclick = () => {
+    const n = waNumber($('#ph', ov).value);
+    if (n.length < 11) { $('#fe', ov).textContent = 'Enter the number with country code, e.g. 919876543210'; return; }
+    window.open(`https://wa.me/${n}?text=${encodeURIComponent($('#msg', ov).value)}`, '_blank'); sent();
+  };
+  $('#gm', ov).onclick = () => {
+    window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent($('#em', ov).value.trim())}&su=${encodeURIComponent(o.subject || o.title)}&body=${encodeURIComponent($('#msg', ov).value)}`, '_blank'); sent();
+  };
+}
+const contactOf = async (clientId) => { const c = await clientById(clientId); return { name: c.contact_person || c.name || '', phone: c.phone, email: c.email, company: c.name }; };
+
+// ---------- public (no-login) pages: approvals, client portal, contracts ----------
+const pubShell = (html) => { window._pub = true; $('#root').innerHTML = `<div class="pubwrap"><div class="pub"><div class="pubhd"><img src="icons/logo.png" alt="Redeye Digital Solutions"></div>${html}<p class="pubft">Powered by Redeye Digital Solutions</p></div></div>`; };
+const pubError = () => pubShell('<div class="panel" style="text-align:center"><h2>Link not found</h2><p>This link is invalid or no longer available. Please ask Redeye Digital Solutions for a new one.</p></div>');
+const nlbr = (t) => esc(t || '').replace(/\n/g, '<br>');
+
+async function renderApproval(kind, token) {
+  pubShell('<p>Loading…</p>');
+  let r = null; try { r = await api('/public/approval', { method: 'POST', body: { kind, token } }); } catch {}
+  if (!r) return pubError();
+  const saved = (() => { try { return localStorage.getItem('approver') || ''; } catch { return ''; } })();
+  const card = (it) => `<div class="panel pc" data-id="${it.id}">
+    <div class="pch"><b>${esc(it.title)}</b><span class="st">${tag(it.client_status && it.client_status !== 'Not sent' ? it.client_status : it.status)}</span></div>
+    <div class="pm">${esc([it.format, it.platform, it.publish_date && 'Going live ' + NICE_DATE(it.publish_date), it.publish_time].filter(Boolean).join(' · '))}</div>
+    ${it.concept ? `<p>${nlbr(it.concept)}</p>` : ''}
+    ${it.script ? `<details><summary>View script</summary><div class="pbox">${nlbr(it.script)}</div></details>` : ''}
+    ${it.caption ? `<div class="pbox"><small>Caption</small><br>${nlbr(it.caption)}${it.hashtags ? `<br><span style="color:var(--mute)">${esc(it.hashtags)}</span>` : ''}</div>` : ''}
+    ${it.asset_link ? `<p><a class="btn ghost" href="${esc(it.asset_link)}" target="_blank" rel="noopener">▶ Watch / view the file</a></p>` : ''}
+    ${it.client_feedback ? `<div class="pbox"><small>Earlier notes</small><br>${nlbr(it.client_feedback)}</div>` : ''}
+    <div class="pact"><button class="btn" data-ok="${it.id}">✅ Approve</button><button class="btn ghost" data-chg="${it.id}">✏️ Request changes</button></div>
+    <div class="pchg" hidden><textarea placeholder="What should we change?"></textarea><button class="btn sm" data-send="${it.id}">Send</button></div><div class="err"></div></div>`;
+  pubShell(`<h1 class="ph1">${kind === 'plan' ? esc(r.plan?.title || 'Content plan') : 'Please review'}</h1>
+    <p class="pm">${esc(r.client?.name || '')}${kind === 'plan' && r.plan?.month ? ' · ' + esc(r.plan.month) : ''}</p>
+    ${kind === 'plan' && r.plan?.objective ? `<div class="pbox">${nlbr(r.plan.objective)}</div>` : ''}
+    <div class="panel"><label>Your name</label><input id="who" value="${esc(saved)}" placeholder="So we know who replied"></div>
+    ${kind === 'plan' && r.items.length > 1 ? '<p><button class="btn" id="all">✅ Approve everything</button></p>' : ''}
+    <div id="cards">${r.items.map(card).join('') || '<p>Nothing to review right now.</p>'}</div>`);
+  const who = () => { const v = $('#who').value.trim(); try { localStorage.setItem('approver', v); } catch {} return v; };
+  const send = async (id, decision, comment, cardEl) => {
+    const e = $('.err', cardEl); e.textContent = '';
+    if (!who()) { e.textContent = 'Please enter your name above'; return false; }
+    try {
+      const res = await api('/public/respond', { method: 'POST', body: { kind, token, item_id: +id, decision, who: who(), comment } });
+      $('.st', cardEl).innerHTML = tag(decision === 'approve' ? 'Approved' : 'Changes requested');
+      $('.pact', cardEl).innerHTML = `<b style="color:var(--${decision === 'approve' ? 'ok' : 'warn'})">${decision === 'approve' ? '✅ Approved, thank you!' : '✏️ Sent to the team, thank you!'}</b>`;
+      $('.pchg', cardEl).hidden = true; return res;
+    } catch (err) { e.textContent = err.message; return false; }
+  };
+  document.querySelectorAll('.pc').forEach((c) => {
+    const id = c.dataset.id;
+    c.querySelector('[data-ok]').onclick = () => send(id, 'approve', '', c);
+    c.querySelector('[data-chg]').onclick = () => { c.querySelector('.pchg').hidden = false; c.querySelector('textarea').focus(); };
+    c.querySelector('[data-send]').onclick = () => send(id, 'changes', c.querySelector('textarea').value, c);
+  });
+  if ($('#all')) $('#all').onclick = async () => { for (const c of document.querySelectorAll('.pc')) { if (c.querySelector('[data-ok]')) await send(c.dataset.id, 'approve', '', c); } };
+}
+
+async function renderPortal(token) {
+  pubShell('<p>Loading…</p>');
+  let r = null; try { r = await api('/public/portal', { method: 'POST', body: { token } }); } catch {}
+  if (!r) return pubError();
+  const link = (p) => `${appBase()}#/${p}`;
+  const needs = r.upcoming.filter((i) => i.status === 'Client review' || i.client_status === 'Sent to client');
+  const num = (n) => new Intl.NumberFormat('en-IN').format(n || 0);
+  const bal = (i) => (+i.total || 0) - (+i.amount_paid || 0);
+  pubShell(`<h1 class="ph1">${esc(r.client.name)}</h1><p class="pm">Your content and billing with ${esc(r.company.name)}</p>
+    ${needs.length ? `<div class="panel" style="border-color:var(--brand)"><h3>⏳ Waiting for your approval (${needs.length})</h3>${needs.map((i) => `<div class="row"><span>${esc(i.title)}<br><small style="color:var(--mute)">${esc([i.format, i.platform, i.publish_date && NICE_DATE(i.publish_date)].filter(Boolean).join(' · '))}</small></span><a class="btn sm" href="${link('approve/item/' + i.share_token)}">Review</a></div>`).join('')}</div>` : ''}
+    ${r.package ? `<div class="panel"><h3>📦 Your package</h3>${esc(r.package.name)}${r.package.videos ? ` · ${r.package.videos} videos / month` : ''}${r.package.posts ? ` · ${r.package.posts} posts / month` : ''}</div>` : ''}
+    <div class="panel"><h3>🗓 Coming up</h3>${r.upcoming.map((i) => `<div class="row"><span>${esc(i.title)}<br><small style="color:var(--mute)">${esc([i.format, i.platform, i.publish_date && NICE_DATE(i.publish_date)].filter(Boolean).join(' · '))}</small></span>${tag(i.client_status === 'Approved' ? 'Approved' : i.status)}</div>`).join('') || '<p style="color:var(--mute)">Nothing scheduled yet.</p>'}</div>
+    ${r.shoots.length ? `<div class="panel"><h3>🎬 Upcoming shoots</h3>${r.shoots.map((s) => `<div class="row"><span>${esc(s.title)}<br><small style="color:var(--mute)">${esc(NICE_DATE(s.date))}${s.call_time ? ' · ' + esc(s.call_time) : ''}${s.location ? ' · ' + esc(s.location) : ''}</small></span>${tag(s.status)}</div>`).join('')}</div>` : ''}
+    <div class="panel"><h3>📈 Recently published</h3>${r.published.map((p) => `<div class="row"><span>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>` : esc(p.title)}<br><small style="color:var(--mute)">${esc([p.platform, NICE_DATE(p.date)].filter(Boolean).join(' · '))}</small></span><span style="text-align:right;font-size:12px;color:var(--mute)">${num(p.views)} views<br>${num(p.likes)} likes · ${num(p.comments)} comments</span></div>`).join('') || '<p style="color:var(--mute)">Results will appear here after your posts go live.</p>'}</div>
+    <div class="panel"><h3>🧾 Invoices</h3>${r.invoices.map((i) => `<div class="row"><span><a href="${link('view/inv/' + i.share_token)}">${esc(i.number)}</a><br><small style="color:var(--mute)">${esc(NICE_DATE(i.issue_date))}${i.due_date ? ' · due ' + esc(NICE_DATE(i.due_date)) : ''}</small></span><span style="text-align:right">${money(i.total)}<br>${i.status === 'Paid' ? tag('Paid') : `${tag(i.status)} <small>balance ${money(bal(i))}</small>`}</span></div>`).join('') || '<p style="color:var(--mute)">No invoices yet.</p>'}</div>
+    <p class="pubft">Questions? ${esc(r.company.email || '')} ${esc(r.company.phone || '')}</p>`);
+}
+
+async function renderContractPage(token) {
+  pubShell('<p>Loading…</p>');
+  let r = null; try { r = await api('/public/contract', { method: 'POST', body: { token } }); } catch {}
+  if (!r) return pubError();
+  const k = r.contract, signed = k.status === 'Signed';
+  pubShell(`<h1 class="ph1">${esc(k.title)}</h1><p class="pm">Between ${esc(r.company.name)} and ${esc(r.client?.name || 'the client')}</p>
+    <div class="panel"><div class="contract">${nlbr(k.body)}</div></div>
+    ${signed ? `<div class="panel" style="border-color:var(--ok)"><h3>✅ Signed</h3>Signed electronically by <b>${esc(k.signed_name)}</b> on ${esc(new Date(k.signed_at).toLocaleString('en-GB'))}.</div>`
+      : `<div class="panel"><h3>Sign this agreement</h3><label>Type your full name</label><input id="sn" autocomplete="name" placeholder="Your full name">
+         <label style="text-transform:none;letter-spacing:0;display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--ink);margin-top:12px"><input type="checkbox" id="ag" style="width:auto;margin-top:3px"> I have read the agreement and agree to it. Typing my name is my electronic signature.</label>
+         <div class="err" id="se"></div><button class="btn" id="sg">Sign</button></div>`}
+    <p><button class="btn ghost" onclick="window.print()">⬇ Download / Print</button></p>`);
+  if ($('#sg')) $('#sg').onclick = async () => {
+    if (!$('#ag').checked) { $('#se').textContent = 'Please tick the box to agree'; return; }
+    try { await api('/public/sign', { method: 'POST', body: { token, who: $('#sn').value } }); renderContractPage(token); } catch (err) { $('#se').textContent = err.message; }
+  };
+}
+
+// ---------- payments, receipts, contracts, approvals, templates, payouts ----------
+const balanceOf = (inv) => Math.max((+inv.total || 0) - (+inv.amount_paid || 0), 0);
+const paidBadge = (inv) => (inv.status === 'Paid' ? 'Paid' : balanceOf(inv) < (+inv.total || 0) ? 'Partial' : inv.status);
+
+function formModal(title, fieldsHtml, okLabel, onSubmit) {
+  const ov = document.createElement('div'); ov.className = 'ov';
+  ov.innerHTML = `<form class="modal" style="max-width:520px"><header><h3>${esc(title)}</h3><button type="button" class="btn ghost sm" id="x">✕</button></header><div class="body">${fieldsHtml}</div>
+    <footer><span id="fe" class="err" style="flex:1;margin:0;align-self:center"></span><button class="btn">${esc(okLabel)}</button></footer></form>`;
+  document.body.append(ov);
+  const close = () => ov.remove(); $('#x', ov).onclick = close; ov.onmousedown = (e) => { if (e.target === ov) close(); };
+  ov.querySelector('form').onsubmit = async (e) => { e.preventDefault(); try { await onSubmit(Object.fromEntries(new FormData(e.target)), close); } catch (err) { $('#fe', ov).textContent = err.message; } };
+  return ov;
+}
+const userOpts = (sel) => `<option value=""></option>${(lookups.users || []).map((u) => `<option value="${u.id}" ${u.id === sel ? 'selected' : ''}>${esc(u.label)}</option>`).join('')}`;
+
+ACTIONS.record_payment = {
+  label: '💵 Record payment',
+  async run(inv, ctx) {
+    formModal(`Record payment · ${inv.number}`, `<div class="full"><small style="color:var(--mute)">Invoice total ${money2(inv.total)} · received ${money2(inv.amount_paid)} · balance <b>${money2(balanceOf(inv))}</b></small></div>
+      <div><label>Amount received *</label><input name="amount" type="number" step="any" value="${balanceOf(inv) || ''}" required></div>
+      <div><label>Received on</label><input name="paid_on" type="date" value="${today()}"></div>
+      <div><label>Method</label><select name="method">${['UPI', 'Bank transfer', 'Cash', 'Cheque', 'Card', 'Other'].map((m) => `<option>${m}</option>`).join('')}</select></div>
+      <div><label>Reference / UTR</label><input name="reference"></div>`, 'Save payment', async (f, close) => {
+      if (!(+f.amount > 0)) throw new Error('Enter the amount received');
+      await api('/e/payments', { method: 'POST', body: { invoice_id: inv.id, amount: +f.amount, paid_on: f.paid_on || today(), method: f.method, reference: f.reference } });
+      close(); ctx.close(); toast('Payment recorded'); ctx.after();
+    });
+  },
+};
+ACTIONS.whatsapp_reminder = {
+  label: '⏰ Payment reminder',
+  async run(inv, ctx) {
+    if (inv.status === 'Paid') return toast('This invoice is already paid');
+    if (!inv.share_token) throw new Error('Sharing is not set up yet');
+    const c = await contactOf(inv.client_id), late = inv.due_date && inv.due_date < today();
+    shareModal({ title: `Payment reminder · ${inv.number}`, phone: c.phone, email: c.email, subject: `Payment reminder — ${inv.number}`, link: shareLink('inv', inv.share_token),
+      message: `Hello ${c.name},\n\nA gentle reminder that invoice ${inv.number} for ${money2(inv.total)}${inv.amount_paid > 0 ? ` (balance ${money2(balanceOf(inv))})` : ''} ${late ? `was due on ${NICE_DATE(inv.due_date)}` : inv.due_date ? `is due on ${NICE_DATE(inv.due_date)}` : 'is pending'}.\n\nView / download: ${shareLink('inv', inv.share_token)}\n\nPlease share the payment confirmation once done. Thank you!\nRedeye Digital Solutions` });
+  },
+};
+ACTIONS.receipt = {
+  label: '🧾 Print receipt',
+  run: (pay) => printDoc(`Receipt ${pay.id}`, async () => {
+    const [invs, cs, co] = await Promise.all([api('/e/invoices'), api('/e/clients'), api('/company').catch(() => ({}))]);
+    const inv = invs.find((i) => String(i.id) === String(pay.invoice_id)) || {}, c = cs.find((x) => String(x.id) === String(inv.client_id)) || {};
+    return `<h1>PAYMENT RECEIPT</h1>${kv([['Receipt no.', 'RC-' + String(pay.id).padStart(4, '0')], ['Date', esc(NICE_DATE(pay.paid_on))], ['Received from', esc(c.name)], ['Towards invoice', esc(inv.number)], ['Amount', `<b>${money2(pay.amount)}</b>`], ['In words', `Rupees ${esc(inWords(pay.amount))} only`], ['Method', esc(pay.method)], ['Reference', esc(pay.reference)], ['Invoice total', money2(inv.total)], ['Balance after this payment', money2(Math.max((+inv.total || 0) - (+inv.amount_paid || 0), 0))]])}
+      <p style="margin-top:40px">For ${esc(co.name || 'Redeye Digital Solutions')}<br><br><b>${esc(co.signatory || 'Authorized Signatory')}</b></p>`;
+  }),
+};
+ACTIONS.share_contract = {
+  label: '💬 Send for signature',
+  async run(k, ctx) {
+    if (!k.share_token) throw new Error('Sharing is not set up yet');
+    if (k.status === 'Signed') return toast('Already signed');
+    const c = await contactOf(k.client_id), link = `${appBase()}#/view/contract/${k.share_token}`;
+    shareModal({ title: `Send contract · ${k.title}`, phone: c.phone, email: c.email, subject: k.title, link, markLabel: 'Mark as Sent', onSent: async () => { if (k.status === 'Draft') await api(`/e/contracts/${k.id}`, { method: 'PUT', body: { ...k, status: 'Sent' } }); ctx.after(); },
+      message: `Hello ${c.name},\n\nPlease review and sign our agreement online: ${k.title}\n\n${link}\n\nYou can sign by typing your name, no printing needed. Thank you!\nRedeye Digital Solutions` });
+  },
+};
+ACTIONS.print_contract = {
+  label: '🖨 Print',
+  run: (k) => printDoc(k.title, async () => `<h1>${esc(k.title)}</h1><pre style="margin-top:14px">${esc(k.body)}</pre>${k.status === 'Signed' ? `<p style="margin-top:30px"><b>Signed electronically by ${esc(k.signed_name)}</b> on ${esc(new Date(k.signed_at).toLocaleString('en-GB'))}</p>` : '<p style="margin-top:50px">Signature: ______________________ &nbsp;&nbsp; Date: ____________</p>'}`),
+};
+ACTIONS.share_portal = {
+  label: '🔗 Client portal link',
+  async run(c) {
+    if (!c.portal_token) throw new Error('Sharing is not set up yet');
+    const link = `${appBase()}#/portal/${c.portal_token}`;
+    shareModal({ title: `Client portal · ${c.name}`, phone: c.phone, email: c.email, subject: `Your content portal — Redeye Digital Solutions`, link,
+      message: `Hello ${c.contact_person || c.name},\n\nHere is your private portal with Redeye. You can see upcoming content, approve posts, check results and view invoices:\n\n${link}\n\nThank you!\nRedeye Digital Solutions` });
+  },
+};
+ACTIONS.approval_link = {
+  label: '✅ Send for approval',
+  async run(it, ctx) {
+    if (!it.share_token) throw new Error('Sharing is not set up yet');
+    const c = await contactOf(it.client_id), link = `${appBase()}#/approve/item/${it.share_token}`;
+    shareModal({ title: `Approval · ${it.title}`, phone: c.phone, email: c.email, subject: `Please approve: ${it.title}`, link, markLabel: 'Mark as sent to client',
+      onSent: async () => { await api(`/e/content_items/${it.id}`, { method: 'PUT', body: { ...it, client_status: 'Sent to client', status: ['Internal review', 'Editing'].includes(it.status) ? 'Client review' : it.status } }); ctx.after(); },
+      message: `Hello ${c.name},\n\nPlease review "${it.title}"${it.publish_date ? ` (planned for ${NICE_DATE(it.publish_date)})` : ''} and tap Approve, or tell us what to change:\n\n${link}\n\nThank you!\nRedeye Digital Solutions` });
+  },
+};
+ACTIONS.plan_approval_link = {
+  label: '✅ Send plan for approval',
+  async run(plan, ctx) {
+    if (!plan.share_token) throw new Error('Sharing is not set up yet');
+    const c = await contactOf(plan.client_id), link = `${appBase()}#/approve/plan/${plan.share_token}`;
+    shareModal({ title: `Plan approval · ${plan.title}`, phone: c.phone, email: c.email, subject: `Content plan for approval — ${plan.title}`, link, markLabel: 'Mark plan as Pending approval',
+      onSent: async () => { await api(`/e/content_plans/${plan.id}`, { method: 'PUT', body: { ...plan, status: 'Pending approval' } }); ctx.after(); },
+      message: `Hello ${c.name},\n\nHere is the content plan for ${plan.month} (${plan.title}). Please review each idea and approve, or tell us what to change:\n\n${link}\n\nThank you!\nRedeye Digital Solutions` });
+  },
+};
+ACTIONS.post_pack = {
+  label: '📤 Posting pack',
+  async run(it, ctx) {
+    const text = [it.caption, it.hashtags].filter(Boolean).join('\n\n');
+    if (text) { try { await navigator.clipboard.writeText(text); toast('Caption and hashtags copied. Paste them into the post.'); } catch { toast('Could not copy automatically'); } } else toast('No caption yet');
+    if (it.asset_link) window.open(it.asset_link, '_blank');
+    if (confirm('Mark this piece as Published now?')) {
+      const url = prompt('Link to the live post (optional)', it.posted_url || '') ?? '';
+      await api(`/e/content_items/${it.id}`, { method: 'PUT', body: { ...it, status: 'Published', posted_on: today(), posted_url: url || it.posted_url } });
+      ctx.close(); toast('Marked as Published'); ctx.after();
+    }
+  },
+};
+ACTIONS.mark_returned = {
+  label: '↩ Mark returned',
+  async run(log, ctx) {
+    if (log.returned_on) return toast('Already returned');
+    const cond = prompt('Condition on return (mention any damage)', 'Good'); if (cond === null) return;
+    await api(`/e/equipment_log/${log.id}`, { method: 'PUT', body: { ...log, returned_on: today(), condition_in: cond } });
+    ctx.close(); toast('Marked as returned'); ctx.after();
+  },
+};
+ACTIONS.apply_template = {
+  label: '📋 Apply task template',
+  async run(row, ctx) {
+    const templates = await api('/e/task_templates'); await lookup('users');
+    if (!templates.length) return toast('No templates yet. Create one under Delivery → Task templates.');
+    const isShoot = ctx.key === 'shoots';
+    const start = isShoot ? row.shoot_date || today() : today();
+    formModal(`Apply a template to “${row.name || row.title}”`, `<div class="full"><label>Template</label><select name="tpl">${templates.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></div>
+      <div><label>Start date${isShoot ? ' (shoot date)' : ''}</label><input name="start" type="date" value="${start}"></div>
+      <div><label>Assign tasks to</label><select name="who">${userOpts(meta.user.id)}</select></div>`, 'Create tasks', async (f, close) => {
+      const t = templates.find((x) => String(x.id) === f.tpl), items = arr(t.items), base = new Date((f.start || today()) + 'T00:00:00'), prefix = row.name || row.title;
+      for (const it of items) { const d = new Date(base); d.setDate(d.getDate() + (+it.days || 0));
+        await api('/e/tasks', { method: 'POST', body: { title: `${prefix}: ${it.title}`, project_id: ctx.key === 'projects' ? row.id : undefined, assignee_id: f.who || meta.user.id, priority: it.priority || 'Medium', status: 'To do', due_date: iso(d) } }); }
+      close(); ctx.close(); toast(`${items.length} tasks created`); location.hash = '#/tasks';
+    });
+  },
+};
+ACTIONS.freelancer_ledger = {
+  label: '💼 Payouts',
+  async run(fl) {
+    await lookup('clients');
+    const draw = async () => {
+      const rows = (await api('/e/expenses')).filter((e) => String(e.freelancer_id) === String(fl.id)), total = rows.filter((e) => e.status !== 'Rejected').reduce((a, e) => a + (+e.amount || 0), 0);
+      return { rows, total };
+    };
+    const { rows, total } = await draw();
+    const ov = document.createElement('div'); ov.className = 'ov';
+    ov.innerHTML = `<div class="modal" style="max-width:640px"><header><h3>💼 Payouts · ${esc(fl.name)}</h3><button class="btn ghost sm" id="x">✕</button></header><div class="body" style="grid-template-columns:1fr">
+      <div><b>Total paid to date: ${money2(total)}</b></div>
+      <div class="tw"><table><thead><tr><th>Date</th><th>For</th><th>Client</th><th>Amount</th><th>Status</th></tr></thead><tbody>${rows.map((e) => `<tr><td>${esc(e.date)}</td><td>${esc(e.description)}</td><td>${esc(lbl('clients', e.client_id))}</td><td>${money2(e.amount)}</td><td>${tag(e.status)}</td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--mute)">No payouts yet</td></tr>'}</tbody></table></div></div>
+      <footer><button class="btn" id="np">+ Record payout</button></footer></div>`;
+    document.body.append(ov); $('#x', ov).onclick = () => ov.remove(); ov.onmousedown = (e) => { if (e.target === ov) ov.remove(); };
+    $('#np', ov).onclick = () => { ov.remove(); formModal(`Payout to ${fl.name}`, `<div><label>Amount *</label><input name="amount" type="number" step="any" required></div><div><label>Date</label><input name="date" type="date" value="${today()}"></div>
+      <div class="full"><label>For (shoot / work)</label><input name="description" value="${esc(fl.role || '')} — " required></div><div class="full"><label>Charge to client</label><select name="client_id"><option value=""></option>${(lookups.clients || []).map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join('')}</select></div>`, 'Save payout', async (f, close) => {
+      await api('/e/expenses', { method: 'POST', body: { date: f.date, category: 'Freelancers', description: f.description, amount: +f.amount, client_id: f.client_id || undefined, freelancer_id: fl.id, status: 'Approved' } }); close(); toast('Payout recorded'); }); };
+  },
+};
+
+// ---------- comments & files inside a record ----------
+const COMMENTABLE = new Set(['content_items', 'shoots', 'tasks', 'projects', 'clients', 'contracts', 'meetings']);
+const ATTACHABLE = new Set(['clients', 'projects', 'content_items', 'shoots', 'tasks', 'contracts', 'meetings', 'freelancers', 'invoices', 'quotes']);
+const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round((n || 0) / 1024)) + ' KB');
+const agoText = (t) => { const m = Math.round((Date.now() - new Date(t)) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }); };
+
+async function renderExtras(ov, key, row) {
+  const box = $('#extras', ov); if (!box) return;
+  box.innerHTML = `${COMMENTABLE.has(key) ? '<div class="sec" style="margin:0">Comments</div><div id="cm" class="cmlist"></div>' : ''}${ATTACHABLE.has(key) ? '<div class="sec" style="margin:14px 0 0">Files</div><div id="at"></div>' : ''}`;
+  const names = (lookups.users || []);
+  if (COMMENTABLE.has(key)) {
+    const drawC = async () => {
+      let list = []; try { list = await api('/comments', { body: { entity: key, record_id: row.id } }); } catch (err) { $('#cm', box).innerHTML = `<small style="color:var(--mute)">${esc(err.message)}</small>`; return; }
+      const mark = (t) => esc(t).replace(/(@[\wÀ-ÿ]+(?: [\wÀ-ÿ]+)?)/g, (m) => (names.some((u) => m.toLowerCase().startsWith('@' + u.label.toLowerCase().split(' ')[0])) ? `<b style="color:var(--brand)">${m}</b>` : m)).replace(/\n/g, '<br>');
+      $('#cm', box).innerHTML = (list.map((c) => `<div class="cmt"><div><b>${esc(lbl('users', c.created_by) || 'Someone')}</b> <small style="color:var(--mute)">${esc(agoText(c.created_at))}</small>${c.created_by === meta.user.id || meta.user.role !== 'staff' ? ` <a href="#" data-dc="${c.id}" style="font-size:11px">delete</a>` : ''}</div><div>${mark(c.body)}</div></div>`).join('') || '<small style="color:var(--mute)">No comments yet</small>')
+        + `<div class="cmnew"><textarea id="cb" placeholder="Write a comment…" style="min-height:60px"></textarea><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><select id="mn" style="width:auto"><option value="">@ Mention…</option>${names.map((u) => `<option value="${esc(u.label)}">${esc(u.label)}</option>`).join('')}</select><span style="flex:1"></span><button type="button" class="btn sm" id="cs">Post</button></div></div>`;
+      $('#mn', box).onchange = (e) => { if (e.target.value) { $('#cb', box).value += `${$('#cb', box).value && !/\s$/.test($('#cb', box).value) ? ' ' : ''}@${e.target.value} `; e.target.value = ''; $('#cb', box).focus(); } };
+      $('#cs', box).onclick = async (e) => {
+        const text = $('#cb', box).value.trim(); if (!text) return;
+        const low = text.toLowerCase(), mentions = names.filter((u) => low.includes('@' + u.label.toLowerCase()) || low.includes('@' + u.label.toLowerCase().split(' ')[0] + ' ') || low.endsWith('@' + u.label.toLowerCase().split(' ')[0])).map((u) => u.id);
+        e.target.disabled = true; try { await api('/comments', { method: 'POST', body: { entity: key, record_id: row.id, body: text, mentions } }); await drawC(); } catch (err) { toast(err.message); e.target.disabled = false; }
+      };
+      box.querySelectorAll('[data-dc]').forEach((a) => (a.onclick = async (e) => { e.preventDefault(); await api(`/comments/${a.dataset.dc}`, { method: 'DELETE' }); drawC(); }));
+    };
+    drawC();
+  }
+  if (ATTACHABLE.has(key)) {
+    const drawA = async () => {
+      let list = []; try { list = await api('/attachments', { body: { entity: key, record_id: row.id } }); } catch (err) { $('#at', box).innerHTML = `<small style="color:var(--mute)">${esc(err.message)}</small>`; return; }
+      $('#at', box).innerHTML = (list.map((a) => `<div class="row"><span>📎 <a href="#" data-op="${a.id}">${esc(a.name)}</a> <small style="color:var(--mute)">${fmtSize(a.size)} · ${esc(lbl('users', a.created_by))}</small></span>${a.created_by === meta.user.id || meta.user.role !== 'staff' ? `<a href="#" data-da="${a.id}" style="font-size:12px">remove</a>` : ''}</div>`).join('') || '<small style="color:var(--mute)">No files yet</small>')
+        + `<div style="margin-top:8px"><input type="file" id="fu" style="display:none" multiple><button type="button" class="btn ghost sm" id="fb">⬆ Add file</button> <small style="color:var(--mute)">up to 50 MB each. For big raw footage, paste a Drive link instead.</small></div>`;
+      $('#fb', box).onclick = () => $('#fu', box).click();
+      $('#fu', box).onchange = async (e) => { for (const f of e.target.files) { try { toast('Uploading ' + f.name + '…'); await api('/attachments', { method: 'POST', body: { entity: key, record_id: row.id, file: f } }); } catch (err) { toast(err.message); } } drawA(); };
+      box.querySelectorAll('[data-op]').forEach((a) => (a.onclick = async (e) => { e.preventDefault(); const f = list.find((x) => String(x.id) === a.dataset.op); try { const u = await api('/attachments/url', { body: { path: f.path } }); window.open(u.url, '_blank'); } catch (err) { toast(err.message); } }));
+      box.querySelectorAll('[data-da]').forEach((a) => (a.onclick = async (e) => { e.preventDefault(); if (!confirm('Remove this file?')) return; await api(`/attachments/${a.dataset.da}`, { method: 'DELETE' }); drawA(); }));
+    };
+    drawA();
+  }
+}
+
+// checklist editor (task templates)
+function checklistEditor(ov, f, row) {
+  let ck = arr(row?.[f.k]).map((x) => ({ title: x.title || '', days: x.days ?? 0, priority: x.priority || 'Medium' }));
+  const draw = () => {
+    const box = $('#ckr', ov);
+    box.innerHTML = ck.map((c, i) => `<div class="cr" style="grid-template-columns:3fr 80px 110px auto"><input data-i="${i}" data-f="title" placeholder="Task" value="${esc(c.title)}"><input data-i="${i}" data-f="days" type="number" value="${esc(c.days)}" title="Days from start"><select data-i="${i}" data-f="priority">${['Low', 'Medium', 'High', 'Urgent'].map((p) => `<option ${p === c.priority ? 'selected' : ''}>${p}</option>`).join('')}</select><button type="button" class="btn ghost sm" data-rm="${i}">✕</button></div>`).join('') || '<small style="color:var(--mute)">No tasks yet</small>';
+    box.querySelectorAll('input,select').forEach((x) => (x.oninput = x.onchange = () => { ck[x.dataset.i][x.dataset.f] = x.dataset.f === 'days' ? +x.value || 0 : x.value; }));
+    box.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => { ck.splice(b.dataset.rm, 1); draw(); }));
+  };
+  draw();
+  if ($('#addck', ov)) $('#addck', ov).onclick = () => { ck.push({ title: '', days: 0, priority: 'Medium' }); draw(); };
+  return () => ck.filter((c) => c.title.trim());
+}
+
+// ---------- custom pages ----------
+const mondayOf = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+let wlWeek = mondayOf(new Date());
+async function workloadView(view) {
+  const [items, shoots, tasks] = await Promise.all([api('/e/content_items'), api('/e/shoots'), api('/e/tasks'), lookup('users'), lookup('clients')]);
+  const users = lookups.users || [];
+  const draw = () => {
+    const days = [...Array(7)].map((_, i) => new Date(wlWeek.getFullYear(), wlWeek.getMonth(), wlWeek.getDate() + i)), keys = days.map(iso), t0 = today();
+    const cell = (u, k) => {
+      const sh = shoots.filter((s) => s.shoot_date === k && s.status !== 'Cancelled' && (s.director_id === u || arr(s.crew_ids).includes(u)));
+      const ed = items.filter((i) => i.edit_due === k && i.editor_id === u && i.status !== 'Published');
+      const po = items.filter((i) => i.publish_date === k && i.owner_id === u && i.status !== 'Published');
+      const tk = tasks.filter((t) => t.due_date === k && t.assignee_id === u && t.status !== 'Done');
+      const chip = (ico, list, name, f) => (list.length ? `<span class="wc" title="${esc(name + ': ' + list.map(f).join(', '))}">${ico} ${list.length}</span>` : '');
+      return { n: sh.length + ed.length + po.length + tk.length, html: chip('🎬', sh, 'Shoots', (s) => s.title) + chip('✂️', ed, 'Edits due', (i) => i.title) + chip('📤', po, 'Posts', (i) => i.title) + chip('✅', tk, 'Tasks due', (t) => t.title) };
+    };
+    const rows = users.map((u) => { const cs = keys.map((k) => cell(u.id, k)), total = cs.reduce((a, c) => a + c.n, 0), pipe = items.filter((i) => i.status !== 'Published' && [i.writer_id, i.editor_id, i.designer_id].includes(u.id)).length; return { u, cs, total, pipe }; });
+    const unassigned = items.filter((i) => i.publish_date >= keys[0] && i.publish_date <= keys[6] && i.status !== 'Published' && !i.editor_id && !i.designer_id && !i.writer_id);
+    $('#wl').innerHTML = `<div class="calwrap"><div class="calhd"><button class="btn ghost sm" data-w="-1">‹</button><h3>Week of ${NICE_DATE(keys[0])}</h3><button class="btn ghost sm" data-w="0">This week</button><button class="btn ghost sm" data-w="1">›</button></div>
+      <table class="wl"><thead><tr><th>Team member</th>${days.map((d, i) => `<th class="${keys[i] === t0 ? 'tdy' : ''}">${DAYS[i]} ${d.getDate()}</th>`).join('')}<th>Week</th><th>In pipeline</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td><b>${esc(r.u.label)}</b></td>${r.cs.map((c, i) => `<td class="${c.n >= 4 ? 'wbusy' : ''} ${keys[i] === t0 ? 'tdy' : ''}">${c.html || '<span style="color:var(--line)">·</span>'}</td>`).join('')}<td class="${r.total >= 12 ? 'wover' : ''}"><b>${r.total}</b>${r.total >= 12 ? ' ⚠️' : ''}</td><td>${r.pipe}</td></tr>`).join('')}</tbody></table>
+      <p style="color:var(--mute);font-size:12px;margin:10px 0 0">🎬 shoots · ✂️ edits due · 📤 posts to publish · ✅ tasks due. Hover a number to see the items. ⚠️ = 12+ items in the week.</p></div>
+      ${unassigned.length ? `<div class="panel" style="margin-top:14px"><h3>Going live this week with nobody assigned (${unassigned.length})</h3>${unassigned.map((i) => `<div class="row"><span><a href="#/content_items">${esc(i.title)}</a><br><small style="color:var(--mute)">${esc([lbl('clients', i.client_id), i.format, NICE_DATE(i.publish_date)].filter(Boolean).join(' · '))}</small></span>${tag(i.status)}</div>`).join('')}</div>` : ''}`;
+    view.querySelectorAll('[data-w]').forEach((b) => (b.onclick = () => { const n = +b.dataset.w; wlWeek = n ? new Date(wlWeek.getFullYear(), wlWeek.getMonth(), wlWeek.getDate() + 7 * n) : mondayOf(new Date()); draw(); }));
+  };
+  view.innerHTML = '<div id="wl"></div>'; draw();
+}
+
+async function receivablesView(view) {
+  const [invs, pays] = await Promise.all([api('/e/invoices'), api('/e/payments'), lookup('clients')]);
+  const open = invs.filter((i) => ['Sent', 'Overdue', 'Partial'].includes(i.status) && balanceOf(i) > 0), t0 = today();
+  const age = (i) => (i.due_date && i.due_date < t0 ? Math.round((new Date(t0) - new Date(i.due_date)) / 864e5) : 0);
+  const sum = (a) => a.reduce((s, i) => s + balanceOf(i), 0), month = t0.slice(0, 7);
+  const buckets = [['Not yet due', open.filter((i) => !age(i))], ['1–30 days late', open.filter((i) => age(i) >= 1 && age(i) <= 30)], ['31–60 days late', open.filter((i) => age(i) >= 31 && age(i) <= 60)], ['60+ days late', open.filter((i) => age(i) > 60)]];
+  const byClient = {}; open.forEach((i) => (byClient[i.client_id] ||= []).push(i));
+  const kpi = (t, v, s = '') => `<div class="panel kpi"><small>${t}</small><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  view.innerHTML = `<div class="grid">${kpi('Total outstanding', money(sum(open)), `${open.length} invoices`)}${buckets.map(([l, a]) => kpi(l, money(sum(a)), `${a.length} invoices`)).join('')}${kpi('Collected this month', money(pays.filter((p) => String(p.paid_on).startsWith(month)).reduce((s, p) => s + (+p.amount || 0), 0)), `${pays.filter((p) => String(p.paid_on).startsWith(month)).length} payments`)}</div>
+    ${Object.entries(byClient).sort((a, b) => sum(b[1]) - sum(a[1])).map(([cid, list]) => `<div class="panel" style="margin-bottom:12px"><h3>${esc(lbl('clients', cid))} <span style="float:right">${money(sum(list))}</span></h3>${list.map((i) => `<div class="row"><span><a href="#" data-op="${i.id}">${esc(i.number)}</a><br><small style="color:var(--mute)">due ${esc(NICE_DATE(i.due_date) || '—')}${age(i) ? ` · <b style="color:var(--bad)">${age(i)} days late</b>` : ''}${i.amount_paid > 0 ? ' · part paid' : ''}</small></span><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><b>${money(balanceOf(i))}</b>${tag(paidBadge(i))}<button class="btn ghost sm" data-rm="${i.id}">⏰ Remind</button><button class="btn sm" data-pay="${i.id}">💵 Paid</button></span></div>`).join('')}</div>`).join('') || '<div class="empty">🎉 Nothing outstanding.</div>'}`;
+  const find = (id) => invs.find((i) => String(i.id) === String(id));
+  const after = () => route();
+  view.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => ACTIONS.whatsapp_reminder.run(find(b.dataset.rm), { close() {}, after, key: 'invoices' }).catch((e) => toast(e.message))));
+  view.querySelectorAll('[data-pay]').forEach((b) => (b.onclick = () => ACTIONS.record_payment.run(find(b.dataset.pay), { close() {}, after, key: 'invoices' })));
+  view.querySelectorAll('[data-op]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); form('invoices', find(a.dataset.op), after); }));
+}
+
+async function profitabilityView(view) {
+  const [invs, pays, exps, projs] = await Promise.all([api('/e/invoices'), api('/e/payments'), api('/e/expenses'), api('/e/projects'), lookup('clients')]);
+  const d1 = new Date(); const from0 = iso(new Date(d1.getFullYear(), d1.getMonth() - 2, 1)), to0 = today();
+  view.innerHTML = `<div class="bar"><div><label>From</label><input type="date" id="pf" value="${from0}"></div><div><label>To</label><input type="date" id="pt" value="${to0}"></div></div><div id="pl"></div>`;
+  const draw = () => {
+    const f = $('#pf').value, t = $('#pt').value, inR = (d) => d >= f && d <= t;
+    const rev = {}, cost = {}; let un = 0;
+    const invClient = Object.fromEntries(invs.map((i) => [i.id, i.client_id]));
+    pays.filter((p) => inR(String(p.paid_on))).forEach((p) => { const c = invClient[p.invoice_id]; rev[c] = (rev[c] || 0) + (+p.amount || 0); });
+    const projClient = Object.fromEntries(projs.map((p) => [p.id, p.client_id]));
+    exps.filter((e) => ['Approved', 'Reimbursed'].includes(e.status) && inR(String(e.date))).forEach((e) => { const c = e.client_id || projClient[e.project_id]; if (c) cost[c] = (cost[c] || 0) + (+e.amount || 0); else un += +e.amount || 0; });
+    const ids = [...new Set([...Object.keys(rev), ...Object.keys(cost)])], rows = ids.map((id) => ({ id, name: lbl('clients', id) || 'Client #' + id, r: rev[id] || 0, c: cost[id] || 0 })).map((x) => ({ ...x, p: x.r - x.c })).sort((a, b) => b.p - a.p);
+    const tr = rows.reduce((s, x) => s + x.r, 0), tc = rows.reduce((s, x) => s + x.c, 0), max = Math.max(1, ...rows.map((x) => x.r));
+    $('#pl').innerHTML = `<div class="grid"><div class="panel kpi"><small>Collected</small><div class="v">${money(tr)}</div></div><div class="panel kpi"><small>Direct costs (charged to clients)</small><div class="v">${money(tc)}</div></div><div class="panel kpi"><small>Gross profit</small><div class="v" style="color:var(--${tr - tc >= 0 ? 'ok' : 'bad'})">${money(tr - tc)}</div><div class="s">${tr ? Math.round(((tr - tc) / tr) * 100) : 0}% margin</div></div><div class="panel kpi"><small>Overheads (not charged to a client)</small><div class="v">${money(un)}</div><div class="s">Net after overheads: ${money(tr - tc - un)}</div></div></div>
+      <div class="tw"><table><thead><tr><th>Client</th><th>Collected</th><th>Costs</th><th>Profit</th><th>Margin</th><th style="width:30%"></th></tr></thead><tbody>${rows.map((x) => `<tr><td>${esc(x.name)}</td><td>${money(x.r)}</td><td>${money(x.c)}</td><td style="color:var(--${x.p >= 0 ? 'ok' : 'bad'})"><b>${money(x.p)}</b></td><td>${x.r ? Math.round((x.p / x.r) * 100) + '%' : '—'}</td><td><div style="height:8px;border-radius:6px;background:var(--brand);width:${Math.max(2, (x.r / max) * 100)}%;opacity:.8"></div></td></tr>`).join('') || '<tr><td colspan="6" style="color:var(--mute)">No data in this period</td></tr>'}</tbody></table></div>
+      <p style="color:var(--mute);font-size:12px">Revenue = payments actually received in the period. Costs = approved expenses and freelancer payouts that are tied to a client (or to one of their projects). Tie expenses to clients to make this accurate.</p>`;
+  };
+  $('#pf').onchange = $('#pt').onchange = draw; draw();
+}
+
+
+async function companyEditor() {
+  const co = await api('/company').catch(() => ({})), b = co.bank || {}, v = (x) => esc(x || '');
+  formModal('Company & invoice details', `<div class="full"><label>Company name</label><input name="name" value="${v(co.name)}"></div><div class="full"><label>Tagline</label><input name="tagline" value="${v(co.tagline)}"></div>
+    <div class="full"><label>Address (one line per row)</label><textarea name="address">${esc((co.address || []).join('\n'))}</textarea></div>
+    <div><label>Email</label><input name="email" value="${v(co.email)}"></div><div><label>Phone</label><input name="phone" value="${v(co.phone)}"></div>
+    <div><label>GSTIN (leave empty if not registered)</label><input name="gstin" value="${v(co.gstin)}"></div><div><label>Signatory name</label><input name="signatory" value="${v(co.signatory)}"></div>
+    <div class="sec">Bank details</div><div><label>Account holder</label><input name="holder" value="${v(b.holder)}"></div><div><label>Bank</label><input name="bank" value="${v(b.bank)}"></div>
+    <div><label>Branch</label><input name="branch" value="${v(b.branch)}"></div><div><label>Account number</label><input name="account" value="${v(b.account)}"></div><div><label>IFSC</label><input name="ifsc" value="${v(b.ifsc)}"></div>`, 'Save', async (f, close) => {
+    await api('/company', { method: 'PUT', body: { ...co, name: f.name, tagline: f.tagline, address: f.address.split('\n').map((x) => x.trim()).filter(Boolean), email: f.email, phone: f.phone, gstin: f.gstin, signatory: f.signatory, bank: { holder: f.holder, bank: f.bank, branch: f.branch, account: f.account, ifsc: f.ifsc } } });
+    close(); toast('Saved');
+  });
+}
+
 // ---------- production panels on the dashboard ----------
 async function productionPanels(view) {
   if (!meta.entities.content_items) return;
@@ -771,6 +1190,7 @@ function invoiceDoc(inv, co, client, kind = 'invoice') {
   const nl = (t) => esc(t || '').replace(/\n/g, '<br>');
   const dt = inv.issue_date ? new Date(inv.issue_date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) : '';
   const sub = items.reduce((s, i) => s + amt(i), 0), tax = sub * (+inv.tax_percent || 0) / 100;
+  const tp = +inv.tax_percent || 0, gstSplit = tax && !isQ && /^CGST/.test(inv.gst_mode || ''), gstIgst = tax && !isQ && /^IGST/.test(inv.gst_mode || ''), taxInv = gstSplit || gstIgst;
   const hasDel = inv.videos_committed !== null && inv.videos_committed !== undefined && inv.videos_committed !== '';
   const com = +inv.videos_committed || 0, del = +inv.videos_delivered || 0, pipe = Math.max(com - del, 0);
   const hasCF = inv.carry_forward !== null && inv.carry_forward !== undefined && inv.carry_forward !== '';
@@ -799,15 +1219,15 @@ function invoiceDoc(inv, co, client, kind = 'invoice') {
   @media print{body{padding:0}}
   </style></head><body>
   <div class="hd"><img src="${logo}" alt="Redeye"><div class="ds">DIGITAL SOLUTIONS</div><div class="tg">“${esc(co.tagline || 'Content that catches the eye.')}”</div></div>
-  <div class="top"><h1>${isQ ? 'QUOTATION' : 'INVOICE'}</h1>
+  <div class="top"><h1>${isQ ? 'QUOTATION' : taxInv ? 'TAX INVOICE' : 'INVOICE'}</h1>
    <table class="meta"><tr><td>${isQ ? 'Quote No.' : 'Invoice No.'}</td><td>${esc(inv.number || '')}</td></tr><tr><td>${isQ ? 'Date' : 'Invoice Date'}</td><td>${esc(dt)}</td></tr>${isQ ? `${inv.title ? `<tr><td>Subject</td><td>${esc(inv.title)}</td></tr>` : ''}${inv.valid_until ? `<tr><td>Valid until</td><td>${esc(inv.valid_until)}</td></tr>` : ''}` : inv.client_ref ? `<tr><td>Client Ref.</td><td>${esc(inv.client_ref)}</td></tr>` : ''}</table></div>
-  <div class="cols"><div><div class="lab">FROM</div><b>${esc(company)}</b><br>${(co.address || []).map(esc).join('<br>')}${co.email ? `<br>Email: ${esc(co.email)}` : ''}${co.phone ? `<br>Phone: ${esc(co.phone)}` : ''}</div>
+  <div class="cols"><div><div class="lab">FROM</div><b>${esc(company)}</b><br>${(co.address || []).map(esc).join('<br>')}${co.gstin ? `<br>GSTIN: ${esc(co.gstin)}` : ''}${co.email ? `<br>Email: ${esc(co.email)}` : ''}${co.phone ? `<br>Phone: ${esc(co.phone)}` : ''}</div>
    <div><div class="lab">BILL TO</div><b>${esc(client.name || lbl('clients', inv.client_id))}</b><br>${nl(client.address)}${client.gstin ? `<br>GSTIN: ${esc(client.gstin)}` : ''}</div></div>
   <table class="t"><thead><tr><th style="width:34px">#</th><th>Description of Services</th><th style="width:30%">Amount (INR)</th></tr></thead><tbody>
    ${items.map((i, n) => `<tr><td>${n + 1}</td><td><b>${esc(i.desc)}</b>${i.note ? `<small>${esc(i.note)}</small>` : ''}</td><td class="a">${num(amt(i))}</td></tr>`).join('')}</tbody></table>
   ${hasDel ? `<div class="sec"><div class="lab">DELIVERY STATUS</div><table class="t" style="margin-top:6px"><thead><tr><th>Videos Committed</th><th>Delivered</th><th>In Pipeline</th></tr></thead><tbody><tr><td class="c">${com}</td><td class="c ${del >= com && com ? 'g' : 'gr'}">${del}</td><td class="c ${pipe ? 'p' : 'gr'}">${pipe}</td></tr></tbody></table></div>` : ''}
   <table class="tot"><tr><td>${tax || deds.length ? 'Total Amount' : 'Total'}</td><td>${inr(sub)}</td></tr>
-   ${tax ? `<tr><td>Tax (${esc(inv.tax_percent)}%)</td><td>${inr(tax)}</td></tr>` : ''}
+   ${tax ? (gstSplit ? `<tr><td>CGST (${tp / 2}%)</td><td>${inr(tax / 2)}</td></tr><tr><td>SGST (${tp / 2}%)</td><td>${inr(tax / 2)}</td></tr>` : gstIgst ? `<tr><td>IGST (${tp}%)</td><td>${inr(tax)}</td></tr>` : `<tr><td>Tax (${esc(inv.tax_percent)}%)</td><td>${inr(tax)}</td></tr>`) : ''}
    ${deds.map((d) => `<tr><td>${esc(d.label)}</td><td class="neg">– ${inr(d.amount)}</td></tr>`).join('')}
    <tr class="dk"><td>${isQ ? 'Total' : 'Payable Now'}</td><td>${inr(inv.total)}</td></tr>
    ${hasCF ? `<tr><td>Balance Carried Forward</td><td>${inr(inv.carry_forward)}</td></tr>` : ''}</table>
@@ -845,6 +1265,16 @@ function settings(view) {
    <div class="panel"><h3>📲 Install the app</h3><p>Use Redeye ERP like a native app on Windows, Mac, Android and iOS.</p>
      ${installEvt ? '<button class="btn" id="inst">Install now</button>' : standalone ? '<span class="tag ok">Already installed</span>' : `<p>Chrome/Edge (Windows, Mac, Android): menu → <b>Install Redeye ERP</b>.<br>Safari on Mac: File → <b>Add to Dock</b>. iPhone/iPad Safari: Share → <b>Add to Home Screen</b>.</p>`}</div>
    <div class="panel"><h3>🔑 Change password</h3><form id="pw"><div style="display:grid;gap:10px"><input type="password" name="current" placeholder="Current password" autocomplete="current-password" required><input type="password" name="next" placeholder="New password (min 8)" autocomplete="new-password" required><div class="err" id="pe2"></div><button class="btn">Update password</button></div></form></div></div>`;
+  view.querySelector('.set').insertAdjacentHTML('beforeend', `<div class="panel"><h3>📅 Calendar feed</h3><p>Show your shoots, posts, tasks and meetings in Google or Apple Calendar on your phone.</p><button class="btn" id="calb">Show my calendar link</button><div id="calo"></div></div>
+    ${meta.user.role === 'admin' ? '<div class="panel"><h3>🏢 Company &amp; invoice details</h3><p>Name, address, GSTIN and bank details printed on invoices.</p><button class="btn" id="cob">Edit details</button></div>' : ''}`);
+  $('#calb').onclick = async () => {
+    try {
+      const tok = await api('/calendar/token'), url = `${SUPABASE_URL}/functions/v1/calendar-feed?token=${tok}`;
+      $('#calo').innerHTML = `<input readonly value="${esc(url)}" style="margin-top:10px" onclick="this.select()"><p><b>Google Calendar:</b> Other calendars → + → From URL → paste. <b>iPhone / Mac:</b> Calendar → File → New Calendar Subscription → paste. Keep this link private.</p><button class="btn ghost sm" id="calc">Copy link</button>`;
+      $('#calc').onclick = async () => { try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { toast('Select and copy the link'); } };
+    } catch (err) { toast(err.message); }
+  };
+  if ($('#cob')) $('#cob').onclick = companyEditor;
   if ($('#pe')) $('#pe').onclick = () => enablePush(false);
   if ($('#pt')) $('#pt').onclick = async () => { await api('/push/test', { method: 'POST' }); toast('Test sent'); };
   if ($('#inst')) $('#inst').onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; route(); };
@@ -908,6 +1338,9 @@ async function pushPrompt() {
   }
   const pv = location.hash.match(/^#\/view\/(inv|quote)\/([0-9a-f-]{36})$/i);
   if (pv) return renderPublicDoc(pv[1], pv[2]);
+  const pc = location.hash.match(/^#\/view\/contract\/([0-9a-f-]{36})$/i); if (pc) return renderContractPage(pc[1]);
+  const pa = location.hash.match(/^#\/approve\/(item|plan)\/([0-9a-f-]{36})$/i); if (pa) return renderApproval(pa[1], pa[2]);
+  const pp = location.hash.match(/^#\/portal\/([0-9a-f-]{36})$/i); if (pp) return renderPortal(pp[1]);
   const { data: { session } } = await sb.auth.getSession();
   if (recovering && session) return renderSetPassword();
   if (!session) return renderLogin();
