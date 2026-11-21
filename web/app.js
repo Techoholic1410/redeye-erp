@@ -86,7 +86,7 @@ function toggleSide(force) {
   s.classList.toggle('open', open); $('.scrim')?.remove();
   if (open) { const d = document.createElement('div'); d.className = 'scrim'; d.onclick = () => toggleSide(false); document.body.append(d); }
 }
-window.addEventListener('hashchange', () => meta && route());
+window.addEventListener('hashchange', () => { if (/^#\/view\//.test(location.hash)) return location.reload(); if (meta) route(); });
 
 async function route() {
   toggleSide(false);

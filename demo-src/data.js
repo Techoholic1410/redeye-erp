@@ -117,6 +117,7 @@ try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch {}
 if (!db) { db = seed(); for (const k of ['invoices', 'quotes']) db[k].forEach((r) => { r.share_token = crypto.randomUUID(); }); }
 else { for (const k of ['invoices', 'quotes']) (db[k] || []).forEach((r) => { if (!r.share_token) r.share_token = crypto.randomUUID(); }); const fresh = seed(); for (const k of Object.keys(fresh)) if (!db[k]) db[k] = fresh[k]; db.seq = { ...fresh.seq, ...db.seq }; }
 const save = () => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch {} };
+save();   // persist seed data (incl. share tokens) so links stay stable between page loads
 export const resetDemo = () => { localStorage.removeItem(DB_KEY); localStorage.removeItem(SESSION_KEY); location.reload(); };
 window.resetDemo = resetDemo;
 
