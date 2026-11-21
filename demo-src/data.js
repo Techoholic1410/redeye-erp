@@ -12,7 +12,7 @@ const uid = (n) => `00000000-0000-4000-8000-00000000000${n}`;
 function seed() {
   const items = (a) => JSON.stringify(a);
   return {
-    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4, packages: 3, content_plans: 2, content_items: 13, shoots: 3, meetings: 3, freelancers: 4, quotes: 2, payments: 3, contracts: 2, equipment_log: 2, task_templates: 5, comments: 1, attachments: 1 },
+    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4, packages: 3, content_plans: 2, content_items: 13, shoots: 3, meetings: 3, freelancers: 4, quotes: 2, payments: 3, contracts: 2, equipment_log: 2, task_templates: 5, comments: 1, attachments: 1, payment_requests: 2 },
     users: [
       { id: uid(1), name: 'Asha Admin', email: 'admin@demo', role: 'admin', active: 'Yes' },
       { id: uid(2), name: 'Manoj Manager', email: 'manager@demo', role: 'manager', active: 'Yes' },
@@ -124,6 +124,9 @@ function seed() {
     ],
     comments: [],
     attachments: [],
+    payment_requests: [
+      { id: 1, client_id: 1, invoice_id: 1, amount: 48000, purpose: 'Invoice RD-INV-0001 balance', due_date: day(2), status: 'Open', created_by: uid(1) },
+    ],
     notifications: [
       { id: 1, user_id: uid(1), title: 'Leave request', body: 'Sana Staff: Casual', url: '#/leaves', read: false, created_at: now() },
       { id: 2, user_id: uid(3), title: 'New task assigned', body: 'Fix contact form', url: '#/tasks', read: false, created_at: now() },
@@ -134,7 +137,7 @@ let db;
 try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch {}
 if (!db) db = seed();
 else { const fresh = seed(); for (const k of Object.keys(fresh)) if (!db[k]) db[k] = fresh[k]; db.seq = { ...fresh.seq, ...db.seq }; }
-for (const [k, f] of [['invoices', 'share_token'], ['quotes', 'share_token'], ['content_items', 'share_token'], ['content_plans', 'share_token'], ['contracts', 'share_token'], ['clients', 'portal_token']])
+for (const [k, f] of [['invoices', 'share_token'], ['quotes', 'share_token'], ['content_items', 'share_token'], ['content_plans', 'share_token'], ['contracts', 'share_token'], ['payment_requests', 'share_token'], ['clients', 'portal_token']])
   (db[k] || []).forEach((r) => { if (!r[f]) r[f] = crypto.randomUUID(); });
 (db.invoices || []).forEach((r) => { if (r.amount_paid == null) r.amount_paid = 0; });
 const save = () => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch {} };
@@ -304,7 +307,7 @@ export async function api(path, opts = {}) {
       const out = { id: db.seq[key], created_by: me().id, created_at: now(), ...defaults, ...row };
       for (const f of e.fields) if (f.def === 'today' && out[f.k] == null) out[f.k] = day();
       if (key === 'invoices') { out.status = out.status || 'Draft'; out.amount_paid = 0; }
-      if (['invoices', 'quotes', 'content_items', 'content_plans', 'contracts'].includes(key)) out.share_token = crypto.randomUUID();
+      if (['invoices', 'quotes', 'content_items', 'content_plans', 'contracts', 'payment_requests'].includes(key)) out.share_token = crypto.randomUUID();
       if (key === 'clients') out.portal_token = crypto.randomUUID();
       businessRules(key, out, null);
       db[t].push(out); afterWrite(key, out); save(); return out;
@@ -351,6 +354,17 @@ export async function api(path, opts = {}) {
       invoices: db.invoices.filter((i) => i.client_id === c.id && !['Draft', 'Cancelled'].includes(i.status)).map((i) => ({ number: i.number, issue_date: i.issue_date, due_date: i.due_date, total: i.total, amount_paid: i.amount_paid, status: i.status, share_token: i.share_token })),
       shoots: db.shoots.filter((s2) => s2.client_id === c.id && s2.shoot_date >= day() && s2.status !== 'Cancelled').map((s2) => ({ title: s2.title, date: s2.shoot_date, call_time: s2.call_time, location: s2.location, status: s2.status })),
       package: (db.packages.find((p) => p.client_id === c.id && p.status === 'Active') ? (({ name, videos_per_month, posts_per_month }) => ({ name, videos: videos_per_month, posts: posts_per_month }))(db.packages.find((p) => p.client_id === c.id && p.status === 'Active')) : null) };
+  }
+  if (path === '/public/payreq') {
+    const r = db.payment_requests.find((x) => x.share_token === body.token); if (!r) return null;
+    return { request: { amount: r.amount, purpose: r.purpose, due_date: r.due_date, status: r.status, claimed_ref: r.claimed_ref }, client: { name: db.clients.find((c) => c.id === r.client_id)?.name }, invoice: { number: db.invoices.find((i) => i.id === r.invoice_id)?.number },
+      company: { name: 'Redeye Digital Solutions', upi_id: 'redeye@upi', bank: { holder: 'Demo Account Holder', bank: 'Demo Bank', branch: 'Demo Branch', account: '0000000000000', ifsc: 'DEMO0000000' }, email: 'info@redeyedigital.in', phone: '7708037165' } };
+  }
+  if (path === '/public/claim') {
+    const r = db.payment_requests.find((x) => x.share_token === body.token); if (!r) throw new Error('This link is not valid');
+    if (['Paid', 'Cancelled'].includes(r.status)) throw new Error('This request is already ' + r.status.toLowerCase());
+    if (String(body.ref || '').trim().length < 4) throw new Error('Please enter the UPI / bank reference number');
+    r.status = 'Paid claimed'; r.claimed_ref = body.ref.trim(); notify(byRole('admin', 'manager'), '💸 Client says paid', `${r.amount} (ref ${r.claimed_ref})`, '#/payment_requests'); save(); return { ok: true };
   }
   if (path === '/public/contract') {
     const k = db.contracts.find((x) => x.share_token === body.token); if (!k) return null;

@@ -172,6 +172,8 @@ export async function api(path, opts = {}) {
   if (path === '/calendar/token') return ok(await sb.rpc('my_calendar_token'));
   if (path === '/public/approval') return ok(await sb.rpc('public_approval', { kind: body.kind, tok: body.token }));
   if (path === '/public/respond') return ok(await sb.rpc('respond_approval', { kind: body.kind, tok: body.token, item_id: body.item_id, decision: body.decision, who: body.who || '', comment: body.comment || '' }));
+  if (path === '/public/payreq') return ok(await sb.rpc('public_payment_request', { tok: body.token }));
+  if (path === '/public/claim') return ok(await sb.rpc('claim_payment_request', { tok: body.token, ref: body.ref, who: body.who || '' }));
   if (path === '/public/portal') return ok(await sb.rpc('public_portal', { tok: body.token }));
   if (path === '/public/contract') return ok(await sb.rpc('public_contract', { tok: body.token }));
   if (path === '/public/sign') return ok(await sb.rpc('sign_contract', { tok: body.token, who: body.who }));

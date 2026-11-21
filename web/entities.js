@@ -127,7 +127,7 @@ export const ENTITIES = {
       { k: 'amount_paid', l: 'Received so far', t: 'money', ro: 1, auto: 1 },
       { k: 'notes', l: 'Notes (one bullet per line)', t: 'textarea' },
     ],
-    actions: ['record_payment', 'whatsapp_invoice', 'email_invoice', 'whatsapp_reminder'],
+    actions: ['record_payment', 'payment_request', 'whatsapp_invoice', 'email_invoice', 'whatsapp_reminder'],
     perms: { read: MGR, create: MGR, update: MGR, del: ADM },
   },
   expenses: {
@@ -392,6 +392,21 @@ export const ENTITIES = {
     actions: ['receipt'],
     perms: { read: MGR, create: MGR, update: MGR, del: ADM },
   },
+  payment_requests: {
+    label: 'Payment requests', icon: '💸', labelField: 'purpose', filters: ['client_id', 'status'],
+    cols: ['client_id', 'purpose', 'amount', 'due_date', 'status', 'claimed_ref'],
+    fields: [
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients', req: 1 },
+      { k: 'invoice_id', l: 'Invoice (optional)', t: 'ref', to: 'invoices' },
+      { k: 'amount', l: 'Amount requested', t: 'money', req: 1 },
+      { k: 'purpose', l: 'Purpose (e.g. 50% advance for December)', t: 'text', req: 1 },
+      { k: 'due_date', l: 'Pay by', t: 'date' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Open', 'Paid claimed', 'Paid', 'Cancelled'], def: 'Open' },
+      { k: 'claimed_ref', l: 'Reference given by client', t: 'text', ro: 1, auto: 1 },
+    ],
+    actions: ['send_payment_request', 'confirm_request_paid'],
+    perms: { read: MGR, create: MGR, update: MGR, del: ADM },
+  },
   equipment_log: {
     label: 'Equipment log', icon: '🎒', labelField: 'asset_id', filters: ['asset_id', 'user_id'],
     cols: ['asset_id', 'user_id', 'out_date', 'due_back', 'returned_on'],
@@ -438,7 +453,7 @@ export const NAV_GROUPS = [
   ['Sales', ['leads', 'quotes', 'contracts', 'clients', 'packages']],
   ['Content studio', ['content_plans', 'content_items', 'shoots', 'freelancers']],
   ['Delivery', ['projects', 'tasks', 'task_templates', 'meetings']],
-  ['Finance', ['invoices', 'payments', 'expenses']],
+  ['Finance', ['invoices', 'payments', 'payment_requests', 'expenses']],
   ['People & ops', ['employees', 'leaves', 'attendance', 'assets', 'equipment_log', 'tickets']],
   ['Admin', ['users']],
 ];

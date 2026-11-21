@@ -90,7 +90,7 @@ function toggleSide(force) {
   s.classList.toggle('open', open); $('.scrim')?.remove();
   if (open) { const d = document.createElement('div'); d.className = 'scrim'; d.onclick = () => toggleSide(false); document.body.append(d); }
 }
-window.addEventListener('hashchange', () => { if (window._pub || /^#\/(view|approve|portal)\//.test(location.hash)) return location.reload(); if (meta) route(); });
+window.addEventListener('hashchange', () => { if (window._pub || /^#\/(view|approve|portal|pay)\//.test(location.hash)) return location.reload(); if (meta) route(); });
 
 async function route() {
   toggleSide(false);
@@ -1121,10 +1121,11 @@ async function receivablesView(view) {
   const byClient = {}; open.forEach((i) => (byClient[i.client_id] ||= []).push(i));
   const kpi = (t, v, s = '') => `<div class="panel kpi"><small>${t}</small><div class="v">${v}</div><div class="s">${s}</div></div>`;
   view.innerHTML = `<div class="grid">${kpi('Total outstanding', money(sum(open)), `${open.length} invoices`)}${buckets.map(([l, a]) => kpi(l, money(sum(a)), `${a.length} invoices`)).join('')}${kpi('Collected this month', money(pays.filter((p) => String(p.paid_on).startsWith(month)).reduce((s, p) => s + (+p.amount || 0), 0)), `${pays.filter((p) => String(p.paid_on).startsWith(month)).length} payments`)}</div>
-    ${Object.entries(byClient).sort((a, b) => sum(b[1]) - sum(a[1])).map(([cid, list]) => `<div class="panel" style="margin-bottom:12px"><h3>${esc(lbl('clients', cid))} <span style="float:right">${money(sum(list))}</span></h3>${list.map((i) => `<div class="row"><span><a href="#" data-op="${i.id}">${esc(i.number)}</a><br><small style="color:var(--mute)">due ${esc(NICE_DATE(i.due_date) || '—')}${age(i) ? ` · <b style="color:var(--bad)">${age(i)} days late</b>` : ''}${i.amount_paid > 0 ? ' · part paid' : ''}</small></span><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><b>${money(balanceOf(i))}</b>${tag(paidBadge(i))}<button class="btn ghost sm" data-rm="${i.id}">⏰ Remind</button><button class="btn sm" data-pay="${i.id}">💵 Paid</button></span></div>`).join('')}</div>`).join('') || '<div class="empty">🎉 Nothing outstanding.</div>'}`;
+    ${Object.entries(byClient).sort((a, b) => sum(b[1]) - sum(a[1])).map(([cid, list]) => `<div class="panel" style="margin-bottom:12px"><h3>${esc(lbl('clients', cid))} <span style="float:right">${money(sum(list))}</span></h3>${list.map((i) => `<div class="row"><span><a href="#" data-op="${i.id}">${esc(i.number)}</a><br><small style="color:var(--mute)">due ${esc(NICE_DATE(i.due_date) || '—')}${age(i) ? ` · <b style="color:var(--bad)">${age(i)} days late</b>` : ''}${i.amount_paid > 0 ? ' · part paid' : ''}</small></span><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><b>${money(balanceOf(i))}</b>${tag(paidBadge(i))}<button class="btn ghost sm" data-rm="${i.id}">⏰ Remind</button><button class="btn ghost sm" data-rq="${i.id}">📨 Request</button><button class="btn sm" data-pay="${i.id}">💵 Paid</button></span></div>`).join('')}</div>`).join('') || '<div class="empty">🎉 Nothing outstanding.</div>'}`;
   const find = (id) => invs.find((i) => String(i.id) === String(id));
   const after = () => route();
   view.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => ACTIONS.whatsapp_reminder.run(find(b.dataset.rm), { close() {}, after, key: 'invoices' }).catch((e) => toast(e.message))));
+  view.querySelectorAll('[data-rq]').forEach((b) => (b.onclick = () => ACTIONS.payment_request.run(find(b.dataset.rq), { close() {}, after, key: 'invoices' }).catch((e) => toast(e.message))));
   view.querySelectorAll('[data-pay]').forEach((b) => (b.onclick = () => ACTIONS.record_payment.run(find(b.dataset.pay), { close() {}, after, key: 'invoices' })));
   view.querySelectorAll('[data-op]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); form('invoices', find(a.dataset.op), after); }));
 }
@@ -1156,11 +1157,72 @@ async function companyEditor() {
     <div class="full"><label>Address (one line per row)</label><textarea name="address">${esc((co.address || []).join('\n'))}</textarea></div>
     <div><label>Email</label><input name="email" value="${v(co.email)}"></div><div><label>Phone</label><input name="phone" value="${v(co.phone)}"></div>
     <div><label>GSTIN (leave empty if not registered)</label><input name="gstin" value="${v(co.gstin)}"></div><div><label>Signatory name</label><input name="signatory" value="${v(co.signatory)}"></div>
+    <div class="full"><label>UPI ID for payment requests (e.g. name@bank)</label><input name="upi_id" value="${v(co.upi_id)}"></div>
     <div class="sec">Bank details</div><div><label>Account holder</label><input name="holder" value="${v(b.holder)}"></div><div><label>Bank</label><input name="bank" value="${v(b.bank)}"></div>
     <div><label>Branch</label><input name="branch" value="${v(b.branch)}"></div><div><label>Account number</label><input name="account" value="${v(b.account)}"></div><div><label>IFSC</label><input name="ifsc" value="${v(b.ifsc)}"></div>`, 'Save', async (f, close) => {
-    await api('/company', { method: 'PUT', body: { ...co, name: f.name, tagline: f.tagline, address: f.address.split('\n').map((x) => x.trim()).filter(Boolean), email: f.email, phone: f.phone, gstin: f.gstin, signatory: f.signatory, bank: { holder: f.holder, bank: f.bank, branch: f.branch, account: f.account, ifsc: f.ifsc } } });
+    await api('/company', { method: 'PUT', body: { ...co, name: f.name, tagline: f.tagline, address: f.address.split('\n').map((x) => x.trim()).filter(Boolean), email: f.email, phone: f.phone, gstin: f.gstin, signatory: f.signatory, upi_id: f.upi_id.trim(), bank: { holder: f.holder, bank: f.bank, branch: f.branch, account: f.account, ifsc: f.ifsc } } });
     close(); toast('Saved');
   });
+}
+
+// ---------- payment requests ----------
+ACTIONS.payment_request = {
+  label: '📨 Payment request',
+  async run(inv, ctx) {
+    const bal = balanceOf(inv);
+    if (bal <= 0) return toast('Nothing is due on this invoice');
+    if (!confirm(`Create a payment request for ${money2(bal)} (balance of ${inv.number}) and send it to the client?`)) return;
+    const r = await api('/e/payment_requests', { method: 'POST', body: { client_id: inv.client_id, invoice_id: inv.id, amount: bal, purpose: `Invoice ${inv.number}`, due_date: inv.due_date && inv.due_date >= today() ? inv.due_date : addDays(3), status: 'Open' } });
+    if (ctx.close) ctx.close();
+    await ACTIONS.send_payment_request.run(r, ctx);
+  },
+};
+ACTIONS.send_payment_request = {
+  label: '💬 Send payment request',
+  async run(req, ctx) {
+    if (!req.share_token) throw new Error('Sharing is not set up yet');
+    if (['Paid', 'Cancelled'].includes(req.status)) return toast('This request is already ' + req.status.toLowerCase());
+    const c = await contactOf(req.client_id), link = `${appBase()}#/pay/${req.share_token}`;
+    shareModal({ title: `Payment request · ${money2(req.amount)}`, phone: c.phone, email: c.email, subject: `Payment request — ${req.purpose}`, link,
+      message: `Hello ${c.name},\n\nRequesting payment of ${money2(req.amount)} for ${req.purpose}${req.due_date ? `, by ${NICE_DATE(req.due_date)}` : ''}.\n\nPay by UPI or bank transfer here (private link):\n${link}\n\nAfter paying, please enter the reference number on that page so we can confirm. Thank you!\nRedeye Digital Solutions` });
+  },
+};
+ACTIONS.confirm_request_paid = {
+  label: '✅ Confirm payment received',
+  async run(req, ctx) {
+    if (req.status === 'Paid') return toast('Already confirmed');
+    if (!confirm(`Confirm you received ${money2(req.amount)}${req.claimed_ref ? ` (ref ${req.claimed_ref})` : ''}? ${req.invoice_id ? 'This records the payment against the invoice.' : ''}`)) return;
+    if (req.invoice_id) await api('/e/payments', { method: 'POST', body: { invoice_id: req.invoice_id, amount: +req.amount, paid_on: today(), method: 'UPI', reference: req.claimed_ref || `Request #${req.id}` } });
+    await api(`/e/payment_requests/${req.id}`, { method: 'PUT', body: { ...req, status: 'Paid' } });
+    if (ctx.close) ctx.close(); toast('Payment confirmed'); ctx.after();
+  },
+};
+
+async function renderPayPage(token) {
+  pubShell('<p>Loading…</p>');
+  let r = null; try { r = await api('/public/payreq', { method: 'POST', body: { token } }); } catch {}
+  if (!r) return pubError();
+  const q = r.request, co = r.company || {}, bank = co.bank || {}, who0 = (() => { try { return localStorage.getItem('approver') || ''; } catch { return ''; } })();
+  const upi = co.upi_id ? `upi://pay?pa=${encodeURIComponent(co.upi_id)}&pn=${encodeURIComponent(co.name || '')}&am=${encodeURIComponent(q.amount)}&cu=INR&tn=${encodeURIComponent((q.purpose || 'Payment').slice(0, 60))}` : '';
+  const done = q.status === 'Paid', claimed = q.status === 'Paid claimed', dead = q.status === 'Cancelled';
+  pubShell(`<h1 class="ph1">Payment request</h1><p class="pm">${esc(r.client?.name || '')} · from ${esc(co.name)}</p>
+    <div class="panel" style="text-align:center"><div style="color:var(--mute)">${esc(q.purpose || '')}${r.invoice?.number && !String(q.purpose || '').includes(r.invoice.number) ? ` · ${esc(r.invoice.number)}` : ''}</div><div style="font-size:42px;font-weight:700;letter-spacing:-.02em;margin:6px 0">${money2(q.amount)}</div>${q.due_date ? `<div class="pm">Please pay by ${esc(NICE_DATE(q.due_date))}</div>` : ''}
+      ${done ? '<div class="tag ok">✅ Paid, thank you!</div>' : dead ? '<div class="tag bad">This request was cancelled</div>' : claimed ? `<div class="tag warn">Reference ${esc(q.claimed_ref)} received, we will confirm shortly</div>` : ''}</div>
+    ${done || dead ? '' : `${upi ? `<div class="panel" style="text-align:center"><h3>Pay with UPI</h3><p><a class="btn" href="${esc(upi)}">Pay ${money2(q.amount)} with UPI</a></p><div id="qr" style="display:flex;justify-content:center;margin:10px 0"></div>
+      <p class="pm">UPI ID: <b id="upid">${esc(co.upi_id)}</b> <a href="#" id="cpu">copy</a><br>On a phone, tap the button. On a computer, scan the QR code with any UPI app.</p></div>` : ''}
+    ${bank.account ? `<div class="panel"><h3>Or bank transfer</h3><div class="pbox">Account holder: <b>${esc(bank.holder)}</b><br>Bank: ${esc(bank.bank)}${bank.branch ? ', ' + esc(bank.branch) : ''}<br>Account number: <b>${esc(bank.account)}</b><br>IFSC: <b>${esc(bank.ifsc)}</b></div></div>` : ''}
+    <div class="panel"><h3>Already paid?</h3><p class="pm">Enter the UPI transaction ID / UTR so we can confirm quickly.</p><label>Your name</label><input id="cw" value="${esc(who0)}"><label style="margin-top:10px">UPI / bank reference</label><input id="cr" placeholder="e.g. 4210XXXXXXXX"><div class="err" id="ce"></div><button class="btn" id="cb">I have paid</button></div>`}
+    <p class="pubft">Questions? ${esc(co.email || '')} ${esc(co.phone || '')}</p>`);
+  if ($('#cpu')) $('#cpu').onclick = async (e) => { e.preventDefault(); try { await navigator.clipboard.writeText(co.upi_id); toast('UPI ID copied'); } catch { toast(co.upi_id); } };
+  if (upi && $('#qr')) {
+    const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    sc.onload = () => { try { new window.QRCode($('#qr'), { text: upi, width: 190, height: 190, correctLevel: window.QRCode.CorrectLevel.M }); } catch {} };
+    document.head.append(sc);
+  }
+  if ($('#cb')) $('#cb').onclick = async () => {
+    try { localStorage.setItem('approver', $('#cw').value.trim()); } catch {}
+    try { await api('/public/claim', { method: 'POST', body: { token, ref: $('#cr').value, who: $('#cw').value } }); renderPayPage(token); } catch (err) { $('#ce').textContent = err.message; }
+  };
 }
 
 // ---------- production panels on the dashboard ----------
@@ -1343,6 +1405,7 @@ async function pushPrompt() {
   const pc = location.hash.match(/^#\/view\/contract\/([0-9a-f-]{36})$/i); if (pc) return renderContractPage(pc[1]);
   const pa = location.hash.match(/^#\/approve\/(item|plan)\/([0-9a-f-]{36})$/i); if (pa) return renderApproval(pa[1], pa[2]);
   const pp = location.hash.match(/^#\/portal\/([0-9a-f-]{36})$/i); if (pp) return renderPortal(pp[1]);
+  const py = location.hash.match(/^#\/pay\/([0-9a-f-]{36})$/i); if (py) return renderPayPage(py[1]);
   const { data: { session } } = await sb.auth.getSession();
   if (recovering && session) return renderSetPassword();
   if (!session) return renderLogin();
