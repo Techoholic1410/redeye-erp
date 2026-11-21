@@ -95,7 +95,7 @@ export const ENTITIES = {
       { k: 'total', l: 'Payable now', t: 'money', ro: 1, auto: 1 },
       { k: 'notes', l: 'Notes (one bullet per line)', t: 'textarea' },
     ],
-    actions: ['whatsapp_invoice'],
+    actions: ['whatsapp_invoice', 'email_invoice'],
     perms: { read: MGR, create: MGR, update: MGR, del: ADM },
   },
   expenses: {
@@ -193,7 +193,7 @@ export const ENTITIES = {
       { k: 'total', l: 'Total', t: 'money', ro: 1, auto: 1 },
       { k: 'notes', l: 'Terms & notes (one bullet per line)', t: 'textarea' },
     ],
-    actions: ['whatsapp_quote', 'quote_print', 'quote_to_invoice'],
+    actions: ['whatsapp_quote', 'email_quote', 'quote_print', 'quote_to_invoice'],
     perms: { read: MGR, create: MGR, update: MGR, del: ADM },
   },
   packages: {

@@ -525,6 +525,8 @@ const ACTIONS = {
   quote_print: { label: '🖨 Print / PDF', run: (q) => printInvoice(q, 'quote') },
   whatsapp_invoice: { label: '💬 Send on WhatsApp', run: (d) => openWhatsApp(d, 'inv') },
   whatsapp_quote: { label: '💬 Send on WhatsApp', run: (d) => openWhatsApp(d, 'quote') },
+  email_invoice: { label: '📧 Send by email', run: (d) => openEmail(d, 'inv') },
+  email_quote: { label: '📧 Send by email', run: (d) => openEmail(d, 'quote') },
   quote_to_invoice: {
     label: '➡ Convert to invoice',
     async run(q, ctx) {
@@ -566,6 +568,37 @@ async function openWhatsApp(doc, kind) {
     if ($('#ms', ov)?.checked) { try { await api(`/e/${isQ ? 'quotes' : 'invoices'}/${doc.id}`, { method: 'PUT', body: { ...doc, status: 'Sent' } }); toast('Marked as Sent'); } catch {} }
     ov.remove(); route();
   };
+}
+
+async function openEmail(doc, kind) {
+  const isQ = kind === 'quote';
+  if (!doc.share_token) throw new Error('Sharing is not set up yet — run migration 006 in Supabase');
+  let who = {};
+  try { who = (await api('/e/clients')).find((c) => String(c.id) === String(doc.client_id)) || {}; } catch {}
+  if (!who.name && doc.lead_id) { try { const l = (await api('/e/leads')).find((x) => String(x.id) === String(doc.lead_id)); who = { name: l?.company || l?.name, contact_person: l?.name, email: l?.email }; } catch {} }
+  const link = shareLink(kind, doc.share_token), nice = isQ ? 'Quotation' : 'Invoice';
+  const due = !isQ && doc.due_date ? ` It is due by ${new Date(doc.due_date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}.` : '';
+  const subject = `${nice} ${doc.number} — Redeye Digital Solutions`;
+  const body = `Hello ${who.contact_person || who.name || ''},\n\nPlease find ${nice.toLowerCase()} ${doc.number} for ${money2(doc.total)}.${due}\n\nView / download PDF: ${link}\n\nIf you have any questions, just reply to this email.\n\nRegards,\n${meta.user.name}\nRedeye Digital Solutions`;
+  const ov = document.createElement('div'); ov.className = 'ov';
+  ov.innerHTML = `<div class="modal" style="max-width:560px"><header><h3>📧 Send ${nice.toLowerCase()} by email</h3><button class="btn ghost sm" id="x">✕</button></header>
+    <div class="body" style="grid-template-columns:1fr"><div><label>To</label><input id="to" type="email" value="${esc(who.email || '')}" placeholder="client@example.com"></div>
+    <div><label>Subject</label><input id="sj" value="${esc(subject)}"></div>
+    <div><label>Message</label><textarea id="msg" style="min-height:200px">${esc(body)}</textarea></div>
+    ${doc.status === 'Draft' ? '<label style="text-transform:none;letter-spacing:0;display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink)"><input type="checkbox" id="ms" checked style="width:auto"> Mark as Sent after opening</label>' : ''}
+    <small style="color:var(--mute)">This opens your own email so you can review and press Send. The link lets the client view and save the ${nice.toLowerCase()} as PDF without logging in.</small></div>
+    <footer><button class="btn ghost" id="cp">Copy link</button><button class="btn ghost" id="app">Open mail app</button><button class="btn" id="gm">Open Gmail</button></footer></div>`;
+  document.body.append(ov);
+  $('#x', ov).onclick = () => ov.remove(); ov.onmousedown = (e) => { if (e.target === ov) ov.remove(); };
+  $('#cp', ov).onclick = async () => { try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } };
+  const go = async (gmail) => {
+    const to = $('#to', ov).value.trim(), sj = $('#sj', ov).value, bd = $('#msg', ov).value;
+    const url = gmail ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(sj)}&body=${encodeURIComponent(bd)}` : `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(sj)}&body=${encodeURIComponent(bd)}`;
+    if (gmail) window.open(url, '_blank'); else location.href = url;
+    if ($('#ms', ov)?.checked) { try { await api(`/e/${isQ ? 'quotes' : 'invoices'}/${doc.id}`, { method: 'PUT', body: { ...doc, status: 'Sent' } }); toast('Marked as Sent'); } catch {} }
+    ov.remove(); route();
+  };
+  $('#gm', ov).onclick = () => go(true); $('#app', ov).onclick = () => go(false);
 }
 async function renderPublicDoc(kind, token) {
   $('#root').innerHTML = '<div class="login"><div class="card"><p>Loading…</p></div></div>';
