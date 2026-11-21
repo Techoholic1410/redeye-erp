@@ -1,6 +1,6 @@
 // Works from any sub-path (e.g. GitHub Pages /redeye-erp/): all URLs are relative to the SW scope.
-const CACHE = 'redeye-erp-v28';
-const SHELL = ['./', 'app.js', 'data.js', 'entities.js', 'config.js', 'style.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/logo.png'];
+const CACHE = 'redeye-erp-v31';
+const SHELL = ['./', 'app.js', 'data.js', 'entities.js', 'config.js', 'style.css', 'glass.css', 'glass.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/logo.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));

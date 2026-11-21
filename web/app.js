@@ -5,6 +5,7 @@ const money = (n) => new Intl.NumberFormat(LOCALE, { style: 'currency', currency
 const money2 = (n) => new Intl.NumberFormat(LOCALE, { style: 'currency', currency: CURRENCY }).format(n || 0);
 const today = () => new Date().toISOString().slice(0, 10);
 
+import './glass.js';
 import { api, sb, configured } from './data.js';
 import { SUPABASE_URL } from './config.js';
 import { CUSTOM_PAGES } from './entities.js';
