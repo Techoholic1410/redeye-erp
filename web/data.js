@@ -2,7 +2,7 @@
 // Exposes api(path, opts) with the same shape the UI was built against. Security is enforced
 // by Postgres row-level security, NOT by this file — hiding things in the UI is only cosmetic.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
-import { ENTITIES, NAV } from './entities.js';
+import { ENTITIES, NAV, NAV_GROUPS } from './entities.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY, VAPID_PUBLIC_KEY } from './config.js';
 
 export const configured = !SUPABASE_URL.includes('YOUR-PROJECT');
@@ -43,7 +43,7 @@ function payload(key, body, isNew) {
     if (v !== null) {
       if (f.t === 'number' || f.t === 'money') { v = Number(v); if (!Number.isFinite(v)) throw new Error(`${f.l} must be a number`); }
       else if (f.t === 'ref' && f.to !== 'users') v = Number(v);
-      else if (f.t === 'items' || f.t === 'deductions') v = typeof v === 'string' ? JSON.parse(v) : v;
+      else if (f.t === 'items' || f.t === 'deductions' || f.t === 'multi' || f.t === 'cadence') v = typeof v === 'string' ? JSON.parse(v) : v;
     }
     if (f.req && v === null) throw new Error(`${f.l} is required`);
     if (isNew && v === null) continue;            // let the database default apply
@@ -79,10 +79,12 @@ export async function api(path, opts = {}) {
       if (!e.perms.read.includes(user.role)) continue;
       entities[k] = {
         label: e.label, icon: e.icon, labelField: e.labelField, board: e.board, cols: e.cols, fields: e.fields,
+        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode,
         can: Object.fromEntries(['create', 'update', 'del'].map((p) => [p, e.perms[p].includes(user.role)])),
       };
     }
-    return { user, entities };
+    const groups = NAV_GROUPS.map(([g, ks]) => [g, ks.filter((k) => entities[k])]).filter(([, ks]) => ks.length);
+    return { user, entities, groups };
   }
 
   if (path === '/me/password') {
@@ -96,15 +98,16 @@ export async function api(path, opts = {}) {
   }
 
   if ((m = path.match(/^\/lookup\/(\w+)$/))) {
-    const t = { users: ['profiles', "active.eq.Yes"], clients: ['clients'], projects: ['projects'] }[m[1]];
-    if (!t) throw new Error('Unknown lookup');
-    let qb = sb.from(t[0]).select('id,label:name').order('name');
+    const col = { users: 'name', clients: 'name', projects: 'name', assets: 'name', leads: 'name', content_plans: 'title', shoots: 'title' }[m[1]];
+    if (!col) throw new Error('Unknown lookup');
+    const t = [m[1] === 'users' ? 'profiles' : m[1]];
+    let qb = sb.from(t[0]).select(`id,label:${col}`).order(col);
     if (m[1] === 'users') qb = qb.eq('active', 'Yes');
     return ok(await qb);
   }
 
   if ((m = path.match(/^\/e\/(\w+)\/export$/))) {
-    const key = m[1], fields = ENTITIES[key].fields.filter((f) => f.t !== 'items' && f.t !== 'deductions' && !f.virtual);
+    const key = m[1], fields = ENTITIES[key].fields.filter((f) => f.k && f.t !== 'items' && f.t !== 'deductions' && f.t !== 'multi' && f.t !== 'cadence' && !f.virtual);
     const rows = ok(await sb.from(table(key)).select('*').order('created_at', { ascending: false }).limit(10000));
     return [fields.map((f) => csvEsc(f.l)).join(','), ...rows.map((r) => fields.map((f) => csvEsc(r[f.k])).join(','))].join('\n');
   }

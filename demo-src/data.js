@@ -1,7 +1,7 @@
 // DEMO data layer: replaces web/data.js in the published /demo/ build.
 // Everything is stored in this browser's localStorage — no server, no real accounts.
 // Same api() contract as the real data layer, with the same role rules enforced client-side for testing the UI.
-import { ENTITIES, NAV } from './entities.js';
+import { ENTITIES, NAV, NAV_GROUPS } from './entities.js';
 
 export const configured = true;
 const DB_KEY = 'redeye-demo-db-v1', SESSION_KEY = 'redeye-demo-session-v1';
@@ -12,7 +12,7 @@ const uid = (n) => `00000000-0000-4000-8000-00000000000${n}`;
 function seed() {
   const items = (a) => JSON.stringify(a);
   return {
-    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4 },
+    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4, packages: 3, content_plans: 2, content_items: 13, shoots: 3, meetings: 3, freelancers: 4, quotes: 2 },
     users: [
       { id: uid(1), name: 'Asha Admin', email: 'admin@demo', role: 'admin', active: 'Yes' },
       { id: uid(2), name: 'Manoj Manager', email: 'manager@demo', role: 'manager', active: 'Yes' },
@@ -68,6 +68,44 @@ function seed() {
       { id: 1, name: 'MacBook Air M3', category: 'Laptop', serial: 'MBA-0042', assigned_to: uid(3), status: 'In use', purchase_date: day(-200), cost: 114900 },
       { id: 2, name: 'Dell 27" Monitor', category: 'Monitor', status: 'In stock', cost: 21500 },
     ],
+    packages: [
+      { id: 1, client_id: 1, name: 'Social growth — 12 videos', monthly_fee: 25000, tax_percent: 0, videos_per_month: 12, posts_per_month: 8, shoots_per_month: 2, billing_day: 1, start_date: day(-60), status: 'Active', inclusions: '12 reels / month\n8 static posts or carousels\n2 shoot days\nMonthly performance report' },
+      { id: 2, client_id: 2, name: 'Festive campaign — 6 videos', monthly_fee: 15000, tax_percent: 0, videos_per_month: 6, posts_per_month: 4, shoots_per_month: 1, billing_day: 5, start_date: day(-20), status: 'Active' },
+    ],
+    content_plans: [
+      { id: 1, client_id: 1, month: day().slice(0, 7), title: 'Festive launch push', status: 'Approved', objective: 'Drive footfall for the festive collection', themes: 'Product stories\nBehind the scenes\nCustomer love',
+        cadence: [{ format: 'Reel', platform: 'Instagram', pillar: 'Product stories', days: ['Mon', 'Thu'] }, { format: 'Carousel', platform: 'Instagram + Facebook', pillar: 'Tips & education', days: ['Wed'] }, { format: 'Static post', platform: 'Instagram', pillar: 'Customer love', days: ['Sat'] }] },
+      { id: 2, client_id: 2, month: day().slice(0, 7), title: 'Recipe series', status: 'Draft', objective: 'Grow YouTube Shorts audience', themes: 'Quick recipes\nChef tips', cadence: [{ format: 'YouTube Short', platform: 'YouTube', pillar: 'Quick recipes', days: ['Tue', 'Fri'] }] },
+    ],
+    shoots: [
+      { id: 1, title: 'Acme — festive product shoot', client_id: 1, shoot_date: day(2), call_time: '09:00', wrap_time: '15:00', location: 'Acme store, 12 Park Street', status: 'Confirmed', director_id: uid(2), crew_ids: [uid(3)], equipment_ids: [1], talent: 'Store staff x2', props: 'Festive collection, backdrop', shot_list: '1. Hero product turns\n2. Store walkthrough\n3. Staff testimonials' },
+      { id: 2, title: 'Bluewave — recipe batch', client_id: 2, shoot_date: day(6), call_time: '10:30', location: 'Bluewave kitchen', status: 'Planned', director_id: uid(2), crew_ids: [], equipment_ids: [] },
+      { id: 3, title: 'Acme — behind the scenes', client_id: 1, shoot_date: day(-5), call_time: '11:00', location: 'Acme warehouse', status: 'Completed', director_id: uid(2), crew_ids: [uid(3)], equipment_ids: [] },
+    ],
+    content_items: [
+      { id: 1, plan_id: 1, client_id: 1, title: 'Festive collection teaser', pillar: 'Product stories', format: 'Reel', platform: 'Instagram', publish_date: day(-4), status: 'Published', owner_id: uid(2), editor_id: uid(3), client_status: 'Approved', posted_on: day(-4), views: 12400, reach: 9800, likes: 860, comments: 41, shares: 77, saves: 120 },
+      { id: 2, plan_id: 1, client_id: 1, title: '5 ways to style a festive outfit', pillar: 'Tips & education', format: 'Carousel', platform: 'Instagram + Facebook', publish_date: day(-1), status: 'Published', owner_id: uid(2), designer_id: uid(3), client_status: 'Approved', posted_on: day(-1), views: 5200, reach: 4100, likes: 410, comments: 18, shares: 33, saves: 95 },
+      { id: 3, plan_id: 1, client_id: 1, title: 'Behind the scenes at the warehouse', pillar: 'Behind the scenes', format: 'Reel', platform: 'Instagram', publish_date: day(1), status: 'Client review', owner_id: uid(2), editor_id: uid(3), client_status: 'Sent to client', shoot_id: 3 },
+      { id: 4, plan_id: 1, client_id: 1, title: 'Store walkthrough', pillar: 'Product stories', format: 'Reel', platform: 'Instagram', publish_date: day(4), status: 'Shoot scheduled', owner_id: uid(2), writer_id: uid(2), editor_id: uid(3), shoot_id: 1, edit_due: day(3) },
+      { id: 5, plan_id: 1, client_id: 1, title: 'Customer love — testimonial 1', pillar: 'Customer love', format: 'Static post', platform: 'Instagram', publish_date: day(5), status: 'Scripting', owner_id: uid(2), designer_id: uid(3) },
+      { id: 6, plan_id: 1, client_id: 1, title: 'Festive offer explainer', pillar: 'Product stories', format: 'Reel', platform: 'Instagram', publish_date: day(8), status: 'Idea', owner_id: uid(2) },
+      { id: 7, plan_id: 1, client_id: 1, title: 'Gift guide carousel', pillar: 'Tips & education', format: 'Carousel', platform: 'Instagram + Facebook', publish_date: day(10), status: 'Idea', owner_id: uid(2) },
+      { id: 8, plan_id: 2, client_id: 2, title: '10-minute pasta', pillar: 'Quick recipes', format: 'YouTube Short', platform: 'YouTube', publish_date: day(3), status: 'Ready to shoot', owner_id: uid(2), writer_id: uid(2) },
+      { id: 9, plan_id: 2, client_id: 2, title: 'Chef tip: knife basics', pillar: 'Chef tips', format: 'YouTube Short', platform: 'YouTube', publish_date: day(7), status: 'Idea', owner_id: uid(2) },
+      { id: 10, plan_id: 1, client_id: 1, title: 'Diwali countdown stories', pillar: 'Product stories', format: 'Story', platform: 'Instagram', publish_date: day(0), status: 'Editing', owner_id: uid(2), editor_id: uid(3), edit_due: day(0) },
+    ],
+    meetings: [
+      { id: 1, title: 'Acme monthly review', client_id: 1, kind: 'Monthly review', meeting_date: day(3), meeting_time: '16:00', location: 'Google Meet', attendees: 'Priya Shah, Manoj', status: 'Scheduled', agenda: 'Last month results\nNext month plan' },
+      { id: 2, title: 'Bluewave kickoff', client_id: 2, kind: 'Kickoff', meeting_date: day(-8), meeting_time: '11:00', status: 'Done', minutes: 'Agreed 6-video package.', action_items: 'Share brand kit\nSchedule first shoot' },
+    ],
+    freelancers: [
+      { id: 1, name: 'Karthik R', role: 'Videographer', phone: '98400 11111', city: 'Coimbatore', rate: 6000, rate_unit: 'Day', status: 'Available' },
+      { id: 2, name: 'Divya S', role: 'Model / talent', phone: '98400 22222', city: 'Pollachi', rate: 3500, rate_unit: 'Day', status: 'Available' },
+      { id: 3, name: 'Studio 9', role: 'Studio', city: 'Coimbatore', rate: 2500, rate_unit: 'Hour', status: 'Available' },
+    ],
+    quotes: [
+      { id: 1, number: 'RD/Q/2026-001', client_id: 3, title: 'Clinic brand film + 8 reels', issue_date: day(-3), valid_until: day(11), items: items([{ desc: 'Brand film (2 min)', note: 'Script, shoot, edit', amount: 40000 }, { desc: '8 social reels', amount: 32000 }]), tax_percent: 0, subtotal: 72000, total: 72000, status: 'Sent', notes: '50% advance to start\nBalance on delivery' },
+    ],
     notifications: [
       { id: 1, user_id: uid(1), title: 'Leave request', body: 'Sana Staff: Casual', url: '#/leaves', read: false, created_at: now() },
       { id: 2, user_id: uid(3), title: 'New task assigned', body: 'Fix contact form', url: '#/tasks', read: false, created_at: now() },
@@ -77,6 +115,7 @@ function seed() {
 let db;
 try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch {}
 if (!db) db = seed();
+else { const fresh = seed(); for (const k of Object.keys(fresh)) if (!db[k]) db[k] = fresh[k]; db.seq = { ...fresh.seq, ...db.seq }; }
 const save = () => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch {} };
 export const resetDemo = () => { localStorage.removeItem(DB_KEY); localStorage.removeItem(SESSION_KEY); location.reload(); };
 window.resetDemo = resetDemo;
@@ -112,7 +151,7 @@ function payload(key, body, isNew) {
       if (f.t === 'number' || f.t === 'money') { v = Number(v); if (!Number.isFinite(v)) throw new Error(`${f.l} must be a number`); }
       else if (f.t === 'ref' && f.to !== 'users') v = Number(v);
       else if (f.t === 'items') v = typeof v === 'string' ? v : JSON.stringify(v);
-      else if (f.t === 'deductions') v = typeof v === 'string' ? JSON.parse(v) : v;
+      else if (f.t === 'deductions' || f.t === 'multi' || f.t === 'cadence') v = typeof v === 'string' ? JSON.parse(v) : v;
     }
     if (f.req && v === null) throw new Error(`${f.l} is required`);
     if (isNew && v === null) continue;
@@ -148,6 +187,28 @@ function businessRules(key, row, old) {
     if (!old) notify(byRole('admin', 'manager').filter((i) => i !== u.id), 'Expense submitted', `${row.description} (${row.amount})`, '#/expenses');
     else if (row.status !== old.status) notify([old.created_by], `Expense ${String(row.status).toLowerCase()}`, row.description, '#/expenses');
   }
+  if (key === 'quotes') {
+    let it = []; try { it = JSON.parse(row.items || '[]'); } catch {}
+    row.subtotal = it.reduce((a, i) => a + (+i.amount || 0), 0); row.total = Math.round(row.subtotal * (1 + (+row.tax_percent || 0) / 100) * 100) / 100;
+    if (!String(row.number || '').trim()) row.number = old?.number || `RD/Q/${String(row.issue_date || day()).slice(0, 4)}-${String((db.quotes.length || 0) + 1).padStart(3, '0')}`;
+    if (row.status === 'Accepted' && old?.status !== 'Accepted') notify(byRole('admin', 'manager').filter((i) => i !== u.id), '🎉 Quote accepted', `${row.number} — ${row.total}`, '#/quotes');
+  }
+  if (key === 'content_items') {
+    for (const [f, t] of [['writer_id', 'Script assigned to you'], ['editor_id', 'Edit assigned to you'], ['designer_id', 'Design assigned to you'], ['owner_id', 'Content assigned to you']])
+      if (row[f] && row[f] !== u.id && row[f] !== old?.[f]) notify([row[f]], t, row.title, '#/content_items');
+    if (old && row.status !== old.status) {
+      if (row.status === 'Shot') notify([row.editor_id].filter((i) => i !== u.id), 'Footage ready to edit', row.title, '#/content_items');
+      if (row.status === 'Internal review') notify([...byRole('admin', 'manager'), row.owner_id].filter((i) => i !== u.id), 'Ready for internal review', row.title, '#/content_items');
+      if (row.status === 'Changes needed') notify([row.editor_id, row.designer_id, row.writer_id, row.owner_id].filter((i) => i !== u.id), 'Changes requested', row.title, '#/content_items');
+      if (row.status === 'Approved') notify([row.owner_id, row.editor_id, row.designer_id].filter((i) => i !== u.id), 'Approved — ready to schedule', row.title, '#/content_items');
+    }
+  }
+  if (key === 'shoots') {
+    const crew = [...(row.crew_ids || []), row.director_id].filter((i) => i && i !== u.id);
+    if (!old) notify(crew, 'Shoot scheduled', `${row.title} — ${row.shoot_date || 'date TBC'}${row.call_time ? ' at ' + row.call_time : ''}`, '#/shoots');
+    else if (row.shoot_date !== old.shoot_date || row.call_time !== old.call_time || row.location !== old.location) notify(crew, 'Shoot updated', `${row.title} — ${row.shoot_date}`, '#/shoots');
+  }
+  if (key === 'content_plans' && old && row.status !== old.status && ['Pending approval', 'Approved'].includes(row.status)) notify(byRole('admin', 'manager').filter((i) => i !== u.id), 'Content plan ' + row.status.toLowerCase(), row.title, '#/content_plans');
   if (key === 'tickets' && !old) notify(byRole('admin', 'manager').filter((i) => i !== u.id), 'New support ticket', row.subject, '#/tickets');
   if (key === 'leads' && row.stage === 'Won' && old?.stage !== 'Won') notify(byRole('admin', 'manager'), '🎉 Lead won', row.name, '#/leads');
 }
@@ -170,15 +231,17 @@ export async function api(path, opts = {}) {
     for (const k of NAV) {
       const e = ENTITIES[k]; if (!e.perms.read.includes(user.role)) continue;
       entities[k] = { label: e.label, icon: e.icon, labelField: e.labelField, board: e.board, cols: e.cols, fields: e.fields,
+        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode,
         can: Object.fromEntries(['create', 'update', 'del'].map((p) => [p, e.perms[p].includes(user.role)])) };
     }
-    return { user, entities };
+    const groups = NAV_GROUPS.map(([g, ks]) => [g, ks.filter((k) => entities[k])]).filter(([, ks]) => ks.length);
+    return { user, entities, groups };
   }
   if (path === '/me/password') { if (String(body.next || '').length < 8) throw new Error('New password must be at least 8 characters'); return {}; }
-  if ((m = path.match(/^\/lookup\/(\w+)$/))) return db[m[1]].filter((x) => x.active !== 'No').map((x) => ({ id: x.id, label: x.name })).sort((a, b) => a.label.localeCompare(b.label));
+  if ((m = path.match(/^\/lookup\/(\w+)$/))) return db[m[1]].filter((x) => x.active !== 'No').map((x) => ({ id: x.id, label: x.name ?? x.title })).sort((a, b) => String(a.label).localeCompare(String(b.label)));
   if ((m = path.match(/^\/e\/(\w+)\/export$/))) {
     can(m[1], 'read');
-    const fields = ENTITIES[m[1]].fields.filter((f) => f.t !== 'items' && f.t !== 'deductions' && !f.virtual);
+    const fields = ENTITIES[m[1]].fields.filter((f) => f.k && f.t !== 'items' && f.t !== 'deductions' && f.t !== 'multi' && f.t !== 'cadence' && !f.virtual);
     return [fields.map((f) => csvEsc(f.l)).join(','), ...visible(m[1], db[table(m[1])]).map((r) => fields.map((f) => csvEsc(r[f.k])).join(','))].join('\n');
   }
   if ((m = path.match(/^\/e\/(\w+)(?:\/([\w-]+))?(?:\?(.*))?$/))) {

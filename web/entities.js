@@ -1,5 +1,6 @@
 // Entity definitions: drive DB schema, API, permissions and the UI forms/tables.
-// t = field type: text | textarea | number | money | date | select | ref | items | email | tel | password
+// t = field type: text | textarea | number | money | date | month | time | select | ref | multi | items | cadence | email | tel | password
+// {sec:'Title'} renders a section heading. Entity extras: calendar {date}, filters [fields], actions [names handled in app.js]
 const ALL = ['admin', 'manager', 'staff'];
 const MGR = ['admin', 'manager'];
 const ADM = ['admin'];
@@ -17,11 +18,18 @@ export const ENTITIES = {
       { k: 'code', l: 'Invoice code (e.g. GC)', t: 'text' },
       { k: 'status', l: 'Status', t: 'select', opts: ['Active', 'Inactive', 'Prospect'], def: 'Active' },
       { k: 'address', l: 'Address', t: 'textarea' },
+      { sec: 'Brand & account' },
+      { k: 'account_manager_id', l: 'Account manager', t: 'ref', to: 'users' },
+      { k: 'onboarded_on', l: 'Onboarded on', t: 'date' },
+      { k: 'social_handles', l: 'Social handles (Instagram, YouTube, etc.)', t: 'textarea' },
+      { k: 'drive_link', l: 'Shared Drive / assets folder link', t: 'text' },
+      { k: 'brand_notes', l: 'Brand notes (tone, colours, do & don’t)', t: 'textarea' },
     ],
+    actions: ['client_report'],
     perms: { read: ALL, create: MGR, update: MGR, del: ADM },
   },
   leads: {
-    label: 'Leads (CRM)', icon: '🎯', labelField: 'name', board: 'stage',
+    label: 'Leads (CRM)', icon: '🎯', labelField: 'name', board: 'stage', filters: ['stage', 'owner_id'],
     cols: ['name', 'company', 'source', 'value', 'stage', 'owner_id'],
     fields: [
       { k: 'name', l: 'Lead name', t: 'text', req: 1 },
@@ -34,10 +42,11 @@ export const ENTITIES = {
       { k: 'owner_id', l: 'Owner', t: 'ref', to: 'users' },
       { k: 'notes', l: 'Notes', t: 'textarea' },
     ],
+    actions: ['convert_lead'],
     perms: { read: ALL, create: MGR, update: MGR, del: ADM },
   },
   projects: {
-    label: 'Projects', icon: '📁', labelField: 'name', board: 'status',
+    label: 'Projects', icon: '📁', labelField: 'name', board: 'status', filters: ['client_id', 'status'],
     cols: ['name', 'client_id', 'status', 'due_date', 'budget', 'manager_id'],
     fields: [
       { k: 'name', l: 'Project name', t: 'text', req: 1 },
@@ -52,7 +61,7 @@ export const ENTITIES = {
     perms: { read: ALL, create: MGR, update: MGR, del: ADM },
   },
   tasks: {
-    label: 'Tasks', icon: '✅', labelField: 'title', board: 'status',
+    label: 'Tasks', icon: '✅', labelField: 'title', board: 'status', calendar: { date: 'due_date' }, filters: ['assignee_id', 'project_id', 'status'],
     cols: ['title', 'project_id', 'assignee_id', 'priority', 'status', 'due_date'],
     fields: [
       { k: 'title', l: 'Title', t: 'text', req: 1 },
@@ -66,7 +75,7 @@ export const ENTITIES = {
     perms: { read: ALL, create: ALL, update: ALL, del: MGR },
   },
   invoices: {
-    label: 'Invoices', icon: '🧾', labelField: 'number',
+    label: 'Invoices', icon: '🧾', labelField: 'number', calendar: { date: 'due_date' }, filters: ['client_id', 'status'],
     cols: ['number', 'client_id', 'issue_date', 'due_date', 'total', 'status'],
     fields: [
       { k: 'number', l: 'Invoice no. (leave empty for auto, e.g. RD/2026/GC-05)', t: 'text' },
@@ -89,7 +98,7 @@ export const ENTITIES = {
     perms: { read: MGR, create: MGR, update: MGR, del: ADM },
   },
   expenses: {
-    label: 'Expenses', icon: '💳', labelField: 'description', ownCol: 'created_by',
+    label: 'Expenses', icon: '💳', labelField: 'description', ownCol: 'created_by', filters: ['status', 'category'],
     cols: ['date', 'category', 'description', 'amount', 'status', 'created_by'],
     fields: [
       { k: 'date', l: 'Date', t: 'date', def: 'today', req: 1 },
@@ -116,7 +125,7 @@ export const ENTITIES = {
     perms: { read: MGR, create: ADM, update: ADM, del: ADM },
   },
   leaves: {
-    label: 'Leave', icon: '🌴', labelField: 'type', ownCol: 'user_id',
+    label: 'Leave', icon: '🌴', labelField: 'type', ownCol: 'user_id', calendar: { date: 'from_date' }, filters: ['user_id', 'status'],
     cols: ['user_id', 'type', 'from_date', 'to_date', 'status'],
     fields: [
       { k: 'user_id', l: 'Employee', t: 'ref', to: 'users' },
@@ -140,7 +149,7 @@ export const ENTITIES = {
     perms: { read: ALL, create: ADM, update: ADM, del: ADM },
   },
   tickets: {
-    label: 'Support tickets', icon: '🎧', labelField: 'subject', board: 'status',
+    label: 'Support tickets', icon: '🎧', labelField: 'subject', board: 'status', filters: ['client_id', 'status'],
     cols: ['subject', 'client_id', 'priority', 'status', 'assignee_id'],
     fields: [
       { k: 'subject', l: 'Subject', t: 'text', req: 1 },
@@ -166,6 +175,158 @@ export const ENTITIES = {
     ],
     perms: { read: ALL, create: MGR, update: MGR, del: ADM },
   },
+  quotes: {
+    label: 'Quotations', icon: '📝', labelField: 'number', filters: ['client_id', 'status'],
+    cols: ['number', 'client_id', 'title', 'valid_until', 'total', 'status'],
+    fields: [
+      { k: 'number', l: 'Quote no. (leave empty for auto)', t: 'text' },
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients' },
+      { k: 'lead_id', l: 'Or lead (if not a client yet)', t: 'ref', to: 'leads' },
+      { k: 'title', l: 'Title (e.g. 12-video monthly package)', t: 'text', req: 1 },
+      { k: 'issue_date', l: 'Date', t: 'date', def: 'today' },
+      { k: 'valid_until', l: 'Valid until', t: 'date' },
+      { k: 'items', l: 'Scope & pricing', t: 'items' },
+      { k: 'tax_percent', l: 'Tax % (GST, 0 if none)', t: 'number', def: 0 },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Draft', 'Sent', 'Accepted', 'Rejected', 'Expired'], def: 'Draft' },
+      { k: 'subtotal', l: 'Subtotal', t: 'money', ro: 1, auto: 1 },
+      { k: 'total', l: 'Total', t: 'money', ro: 1, auto: 1 },
+      { k: 'notes', l: 'Terms & notes (one bullet per line)', t: 'textarea' },
+    ],
+    actions: ['quote_print', 'quote_to_invoice'],
+    perms: { read: MGR, create: MGR, update: MGR, del: ADM },
+  },
+  packages: {
+    label: 'Retainers & packages', icon: '📦', labelField: 'name', filters: ['client_id', 'status'],
+    cols: ['client_id', 'name', 'monthly_fee', 'videos_per_month', 'posts_per_month', 'status'],
+    fields: [
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients', req: 1 },
+      { k: 'name', l: 'Package name', t: 'text', req: 1 },
+      { k: 'monthly_fee', l: 'Monthly fee', t: 'money' },
+      { k: 'tax_percent', l: 'Tax %', t: 'number', def: 0 },
+      { k: 'videos_per_month', l: 'Videos / month', t: 'number' },
+      { k: 'posts_per_month', l: 'Static posts / carousels per month', t: 'number' },
+      { k: 'shoots_per_month', l: 'Shoot days / month', t: 'number' },
+      { k: 'billing_day', l: 'Invoice on day of month', t: 'number' },
+      { k: 'start_date', l: 'Start date', t: 'date' },
+      { k: 'end_date', l: 'End date', t: 'date' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Active', 'Paused', 'Ended'], def: 'Active' },
+      { k: 'inclusions', l: 'What is included', t: 'textarea' },
+    ],
+    actions: ['raise_invoice'],
+    perms: { read: MGR, create: MGR, update: MGR, del: ADM },
+  },
+  content_plans: {
+    label: 'Content plans', icon: '🧭', labelField: 'title', filters: ['client_id', 'status'],
+    cols: ['title', 'client_id', 'month', 'status'],
+    fields: [
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients', req: 1 },
+      { k: 'month', l: 'Month', t: 'month', req: 1 },
+      { k: 'title', l: 'Plan title (e.g. December launch push)', t: 'text', req: 1 },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Draft', 'Pending approval', 'Approved', 'In production', 'Completed'], def: 'Draft' },
+      { k: 'objective', l: 'Objective / campaign goal', t: 'textarea' },
+      { k: 'themes', l: 'Content pillars & themes (one per line)', t: 'textarea' },
+      { k: 'cadence', l: 'Posting cadence — slots that become the content calendar', t: 'cadence' },
+      { k: 'notes', l: 'Notes', t: 'textarea' },
+    ],
+    actions: ['generate_calendar'],
+    perms: { read: ALL, create: MGR, update: MGR, del: MGR },
+  },
+  content_items: {
+    label: 'Content calendar', icon: '🗓️', labelField: 'title', board: 'status', calendar: { date: 'publish_date' }, defaultMode: 'calendar',
+    filters: ['client_id', 'status', 'format', 'owner_id'],
+    cols: ['publish_date', 'title', 'client_id', 'format', 'platform', 'status', 'owner_id'],
+    fields: [
+      { sec: 'Plan' },
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients', req: 1 },
+      { k: 'plan_id', l: 'Content plan', t: 'ref', to: 'content_plans' },
+      { k: 'title', l: 'Title / working name', t: 'text', req: 1 },
+      { k: 'pillar', l: 'Content pillar', t: 'text' },
+      { k: 'format', l: 'Format', t: 'select', opts: ['Reel', 'Carousel', 'Static post', 'Story', 'YouTube video', 'YouTube Short', 'Poster / creative', 'Article', 'Other'] },
+      { k: 'platform', l: 'Platform', t: 'select', opts: ['Instagram', 'Facebook', 'YouTube', 'LinkedIn', 'X / Twitter', 'Threads', 'WhatsApp', 'Instagram + Facebook', 'All platforms'] },
+      { k: 'publish_date', l: 'Publish date', t: 'date' },
+      { k: 'publish_time', l: 'Publish time', t: 'time' },
+      { k: 'status', l: 'Stage', t: 'select', opts: ['Idea', 'Scripting', 'Ready to shoot', 'Shoot scheduled', 'Shot', 'Editing', 'Internal review', 'Client review', 'Changes needed', 'Approved', 'Scheduled', 'Published'], def: 'Idea' },
+      { k: 'owner_id', l: 'Account owner', t: 'ref', to: 'users' },
+      { sec: 'Creative' },
+      { k: 'concept', l: 'Concept / hook', t: 'textarea' },
+      { k: 'script', l: 'Script / storyboard', t: 'textarea' },
+      { k: 'caption', l: 'Caption', t: 'textarea' },
+      { k: 'hashtags', l: 'Hashtags', t: 'text' },
+      { sec: 'Production' },
+      { k: 'writer_id', l: 'Writer', t: 'ref', to: 'users' },
+      { k: 'editor_id', l: 'Editor', t: 'ref', to: 'users' },
+      { k: 'designer_id', l: 'Designer', t: 'ref', to: 'users' },
+      { k: 'shoot_id', l: 'Shoot', t: 'ref', to: 'shoots' },
+      { k: 'edit_due', l: 'Edit due', t: 'date' },
+      { k: 'asset_link', l: 'Drive / asset link (raw + final files)', t: 'text' },
+      { sec: 'Client approval' },
+      { k: 'client_status', l: 'Client status', t: 'select', opts: ['Not sent', 'Sent to client', 'Approved', 'Changes requested'], def: 'Not sent' },
+      { k: 'client_feedback', l: 'Client feedback / revision notes', t: 'textarea' },
+      { sec: 'Published & results' },
+      { k: 'posted_url', l: 'Post link', t: 'text' },
+      { k: 'posted_on', l: 'Posted on', t: 'date' },
+      { k: 'views', l: 'Views', t: 'number' }, { k: 'reach', l: 'Reach', t: 'number' }, { k: 'likes', l: 'Likes', t: 'number' },
+      { k: 'comments', l: 'Comments', t: 'number' }, { k: 'shares', l: 'Shares', t: 'number' }, { k: 'saves', l: 'Saves', t: 'number' },
+    ],
+    perms: { read: ALL, create: ALL, update: ALL, del: MGR },
+  },
+  shoots: {
+    label: 'Shoot schedule', icon: '🎬', labelField: 'title', board: 'status', calendar: { date: 'shoot_date' }, defaultMode: 'calendar',
+    filters: ['client_id', 'status'],
+    cols: ['shoot_date', 'call_time', 'title', 'client_id', 'location', 'status', 'director_id'],
+    fields: [
+      { k: 'title', l: 'Shoot title', t: 'text', req: 1 },
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients' },
+      { k: 'shoot_date', l: 'Date', t: 'date', req: 1 },
+      { k: 'call_time', l: 'Call time', t: 'time' },
+      { k: 'wrap_time', l: 'Expected wrap', t: 'time' },
+      { k: 'location', l: 'Location / address', t: 'text' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Planned', 'Confirmed', 'Completed', 'Cancelled', 'Postponed'], def: 'Planned' },
+      { k: 'director_id', l: 'Lead / director', t: 'ref', to: 'users' },
+      { k: 'crew_ids', l: 'Crew (team members on this shoot)', t: 'multi', to: 'users' },
+      { k: 'equipment_ids', l: 'Equipment (from assets)', t: 'multi', to: 'assets' },
+      { k: 'talent', l: 'Talent / people on camera', t: 'textarea' },
+      { k: 'props', l: 'Props, wardrobe & permissions', t: 'textarea' },
+      { k: 'content_pick', l: 'Content pieces to shoot (tick to attach)', t: 'itempick', virtual: 1 },
+      { k: 'shot_list', l: 'Shot list', t: 'textarea' },
+      { k: 'notes', l: 'Notes', t: 'textarea' },
+    ],
+    actions: ['call_sheet'],
+    perms: { read: ALL, create: MGR, update: ALL, del: MGR },
+  },
+  meetings: {
+    label: 'Meetings', icon: '🤝', labelField: 'title', calendar: { date: 'meeting_date' }, filters: ['client_id', 'status'],
+    cols: ['meeting_date', 'meeting_time', 'title', 'client_id', 'kind', 'status'],
+    fields: [
+      { k: 'title', l: 'Meeting', t: 'text', req: 1 },
+      { k: 'client_id', l: 'Client', t: 'ref', to: 'clients' },
+      { k: 'kind', l: 'Type', t: 'select', opts: ['Sales call', 'Kickoff', 'Content review', 'Monthly review', 'Shoot briefing', 'Internal', 'Other'] },
+      { k: 'meeting_date', l: 'Date', t: 'date', def: 'today' },
+      { k: 'meeting_time', l: 'Time', t: 'time' },
+      { k: 'location', l: 'Place / call link', t: 'text' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Scheduled', 'Done', 'Cancelled'], def: 'Scheduled' },
+      { k: 'attendees', l: 'Attendees', t: 'text' },
+      { k: 'agenda', l: 'Agenda', t: 'textarea' },
+      { k: 'minutes', l: 'Minutes / discussion', t: 'textarea' },
+      { k: 'action_items', l: 'Action items', t: 'textarea' },
+    ],
+    perms: { read: ALL, create: ALL, update: ALL, del: MGR },
+  },
+  freelancers: {
+    label: 'Freelancers & vendors', icon: '🎥', labelField: 'name', filters: ['role', 'status'],
+    cols: ['name', 'role', 'phone', 'city', 'rate', 'status'],
+    fields: [
+      { k: 'name', l: 'Name', t: 'text', req: 1 },
+      { k: 'role', l: 'Role', t: 'select', opts: ['Videographer', 'Photographer', 'Editor', 'Designer', 'Model / talent', 'Voice-over', 'Makeup / styling', 'Drone operator', 'Equipment rental', 'Studio', 'Other'] },
+      { k: 'phone', l: 'Phone', t: 'tel' }, { k: 'email', l: 'Email', t: 'email' }, { k: 'city', l: 'City', t: 'text' },
+      { k: 'rate', l: 'Rate', t: 'money' },
+      { k: 'rate_unit', l: 'Rate per', t: 'select', opts: ['Hour', 'Day', 'Video', 'Project', 'Month'] },
+      { k: 'portfolio_link', l: 'Portfolio link', t: 'text' },
+      { k: 'status', l: 'Status', t: 'select', opts: ['Available', 'Busy', 'Blacklisted'], def: 'Available' },
+      { k: 'notes', l: 'Notes', t: 'textarea' },
+    ],
+    perms: { read: MGR, create: MGR, update: MGR, del: ADM },
+  },
   users: {
     label: 'Users & access', icon: '🔐', labelField: 'name',
     cols: ['name', 'email', 'role', 'active'],
@@ -180,4 +341,13 @@ export const ENTITIES = {
   },
 };
 
-export const NAV = ['clients', 'leads', 'projects', 'tasks', 'invoices', 'expenses', 'employees', 'leaves', 'attendance', 'tickets', 'assets', 'users'];
+// Sidebar sections (order = workflow order: win work → plan content → shoot & produce → deliver → bill).
+export const NAV_GROUPS = [
+  ['Sales', ['leads', 'quotes', 'clients', 'packages']],
+  ['Content studio', ['content_plans', 'content_items', 'shoots', 'freelancers']],
+  ['Delivery', ['projects', 'tasks', 'meetings']],
+  ['Finance', ['invoices', 'expenses']],
+  ['People & ops', ['employees', 'leaves', 'attendance', 'assets', 'tickets']],
+  ['Admin', ['users']],
+];
+export const NAV = NAV_GROUPS.flatMap(([, ks]) => ks);
