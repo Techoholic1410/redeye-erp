@@ -46,7 +46,7 @@ async function boot() {
   $('#root').innerHTML = `<div class="shell">
     <aside class="side" id="side"><div class="brand"><img src="icons/logo.png" alt="Redeye"><small>ERP</small></div>
       <nav class="nav" id="nav"></nav>
-      <div class="me"><b>${esc(meta.user.name)}</b>${esc(meta.user.role)} · <a href="#" id="lo" style="color:#fff">Sign out</a></div></aside>
+      <div class="me"><b>${esc(meta.user.name)}</b>${esc(meta.user.role)} · <a href="#" id="lo" style="color:var(--brand)">Sign out</a></div></aside>
     <div class="main"><div class="top"><button class="iconbtn burger" id="bg" aria-label="Menu">☰</button><h2 id="title"></h2>
       <button class="iconbtn" id="bell" aria-label="Notifications">🔔<span class="badge" id="bb" hidden>0</span></button></div>
       <div id="view"></div></div></div>`;
