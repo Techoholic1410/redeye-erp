@@ -215,7 +215,7 @@ async function entityView(view, key) {
         };
       });
     } else {
-      box.innerHTML = `<div class="tw"><table><thead><tr>${colF.map((f) => `<th>${esc(f.l)}</th>`).join('')}</tr></thead><tbody>
+      box.innerHTML = `<div class="tw"><table><thead><tr>${colF.map((f) => `<th>${esc(String(f.l).replace(/\s*\(.*$/, ''))}</th>`).join('')}</tr></thead><tbody>
         ${rows.map((r) => `<tr data-id="${r.id}">${colF.map((f) => `<td>${cell(f, r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
       box.querySelectorAll('tbody tr').forEach((tr) => (tr.onclick = () => form(key, rows.find((r) => r.id == tr.dataset.id), load)));
     }
