@@ -1167,6 +1167,28 @@ async function companyEditor() {
   });
 }
 
+// ---------- task reminders ----------
+ACTIONS.remind_task = {
+  label: '🔔 Remind assignee',
+  async run(t) {
+    if (!t.assignee_id) throw new Error('Assign the task to someone first');
+    const note = prompt(`Remind ${lbl('users', t.assignee_id) || 'the assignee'} about “${t.title}”.\nAdd a short note (optional):`, '');
+    if (note === null) return;
+    await api('/tasks/remind', { method: 'POST', body: { id: t.id, note } });
+    toast('Reminder sent');
+  },
+};
+ACTIONS.snooze_task = {
+  label: '😴 Snooze my reminder',
+  async run(t, ctx) {
+    if (t.assignee_id !== meta.user.id) throw new Error('Only the person assigned can snooze this reminder');
+    const tm = new Date(); tm.setDate(tm.getDate() + 1); tm.setHours(9, 0, 0, 0);
+    formModal(`Snooze · ${t.title}`, `<div class="full"><label>Remind me again in</label><select name="m"><option value="30">30 minutes</option><option value="60" selected>1 hour</option><option value="180">3 hours</option><option value="${Math.max(10, Math.round((tm - Date.now()) / 60000))}">Tomorrow morning (9 AM)</option></select></div>`, 'Snooze', async (f, close) => {
+      await api('/tasks/snooze', { method: 'POST', body: { id: t.id, mins: +f.m } }); close(); if (ctx.close) ctx.close(); toast('Snoozed'); ctx.after();
+    });
+  },
+};
+
 // ---------- payment requests ----------
 ACTIONS.payment_request = {
   label: '📨 Payment request',

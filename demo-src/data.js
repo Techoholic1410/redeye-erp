@@ -361,6 +361,14 @@ export async function api(path, opts = {}) {
       shoots: db.shoots.filter((s2) => s2.client_id === c.id && s2.shoot_date >= day() && s2.status !== 'Cancelled').map((s2) => ({ title: s2.title, date: s2.shoot_date, call_time: s2.call_time, location: s2.location, status: s2.status })),
       package: (db.packages.find((p) => p.client_id === c.id && p.status === 'Active') ? (({ name, videos_per_month, posts_per_month }) => ({ name, videos: videos_per_month, posts: posts_per_month }))(db.packages.find((p) => p.client_id === c.id && p.status === 'Active')) : null) };
   }
+  if (path === '/tasks/remind') {
+    const t = db.tasks.find((x) => String(x.id) === String(body.id)); if (!t) throw new Error('Task not found'); if (!t.assignee_id) throw new Error('This task has no assignee yet');
+    notify([t.assignee_id], '🔔 ' + me().name + ' reminded you', t.title + (body.note ? ' — ' + body.note : ''), '#/tasks'); save(); return {};
+  }
+  if (path === '/tasks/snooze') {
+    const t = db.tasks.find((x) => String(x.id) === String(body.id)); if (!t || t.assignee_id !== me().id) throw new Error('Only the person assigned can snooze this reminder');
+    t.remind_at = new Date(Date.now() + body.mins * 60000).toISOString(); save(); return {};
+  }
   if (path === '/public/payreq') {
     const r = db.payment_requests.find((x) => x.share_token === body.token); if (!r) return null;
     return { request: { amount: r.amount, purpose: r.purpose, due_date: r.due_date, status: r.status, claimed_ref: r.claimed_ref }, client: { name: db.clients.find((c) => c.id === r.client_id)?.name }, invoice: { number: db.invoices.find((i) => i.id === r.invoice_id)?.number },

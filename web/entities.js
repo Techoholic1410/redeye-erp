@@ -100,8 +100,12 @@ export const ENTITIES = {
       { k: 'priority', l: 'Priority', t: 'select', opts: ['Low', 'Medium', 'High', 'Urgent'], def: 'Medium' },
       { k: 'status', l: 'Status', t: 'select', opts: ['To do', 'In progress', 'Review', 'Done'], def: 'To do' },
       { k: 'due_date', l: 'Due date', t: 'date' },
+      { k: 'due_time', l: 'Due time (optional)', t: 'time' },
+      { k: 'remind', l: 'Remind the assignee', t: 'select', opts: ['None', 'Morning of due date', 'At due time', '15 minutes before', '1 hour before', '3 hours before', '1 day before'], def: 'Morning of due date' },
+      { k: 'nag_overdue', l: 'Nudge daily while overdue', t: 'select', opts: ['Yes', 'No'], def: 'Yes' },
       { k: 'description', l: 'Description', t: 'textarea' },
     ],
+    actions: ['remind_task', 'snooze_task'],
     perms: { read: ALL, create: ALL, update: ALL, del: MGR },
   },
   invoices: {
