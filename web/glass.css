@@ -283,3 +283,53 @@ th { background: rgba(255,255,255,.78); }
 /* small round remove buttons in line-item / cadence / checklist editors */
 .items .li > .btn, .cad .cr > .btn { align-self: center; justify-self: center; width: 38px; height: 38px; min-width: 38px; padding: 0; border-radius: 50%; display: inline-grid; place-items: center; }
 .items .li, .cad .cr { align-items: center; }
+
+/* =====================================================================
+   Round 3: real transparency, red (not pink) colour, touch-screen fixes
+   ===================================================================== */
+:root {
+  --g-fill: linear-gradient(145deg, rgba(255,255,255,.50) 0%, rgba(255,255,255,.17) 48%, rgba(255,255,255,.34) 100%);
+  --g-fill-soft: linear-gradient(145deg, rgba(255,255,255,.38), rgba(255,255,255,.13));
+  --g-edge: inset 2px 2px 2px rgba(255,255,255,.95), inset -1.5px -1.5px 2px rgba(255,255,255,.32), inset 0 0 0 1px rgba(255,255,255,.36), inset 0 0 24px rgba(255,255,255,.12);
+  --g-drop: 0 26px 64px -14px rgba(185,22,28,.38), 0 4px 14px rgba(110,15,20,.12);
+  --blur: blur(38px) saturate(215%) brightness(1.03);
+}
+/* backdrop: true reds and warm oranges, no violet/pink, so the glass picks up red light */
+.bg { background: linear-gradient(160deg, #fff3ee 0%, #ffe0d6 45%, #ffd0c4 100%); }
+.bg i { mix-blend-mode: normal; filter: blur(70px); }
+.bg i:nth-child(1) { background: #e8261c; opacity: .62; }
+.bg i:nth-child(2) { background: #ff5a36; opacity: .58; }
+.bg i:nth-child(3) { background: #ff9a5c; opacity: .5; }
+.bg i:nth-child(4) { background: #c8102e; opacity: .42; }
+.bg i:nth-child(5) { background: #ffb08c; opacity: .4; }
+.bg::after { background-image: radial-gradient(rgba(150,20,25,.10) 1px, transparent 1px); }
+
+/* surfaces: let the colour behind show through; tables/forms stay a little denser for reading */
+.tw { background: var(--spec), linear-gradient(145deg, rgba(255,255,255,.66), rgba(255,255,255,.40)); }
+.modal { background: var(--spec), linear-gradient(145deg, rgba(255,255,255,.76), rgba(255,255,255,.50)); }
+.drawer { background: var(--spec), linear-gradient(145deg, rgba(255,255,255,.72), rgba(255,255,255,.46)); }
+.login .card { background: var(--spec), linear-gradient(145deg, rgba(255,255,255,.58), rgba(255,255,255,.28)); }
+th { background: rgba(255,255,255,.62); }
+input, select, textarea { background: linear-gradient(180deg, rgba(255,255,255,.40), rgba(255,255,255,.58)); }
+.ov { background: radial-gradient(circle at 50% 30%, rgba(255,235,230,.30), rgba(150,20,28,.32)); }
+.tag, .ev, .pipe a, .wc { background: linear-gradient(160deg, rgba(255,255,255,.70), rgba(255,255,255,.34)); }
+.nav a:hover { background: rgba(255,255,255,.34); }
+.navpill { background: linear-gradient(160deg, rgba(255,255,255,.82), rgba(255,205,198,.52)); }
+
+/* touch screens: no sticky hover, and the phone menu must always slide away when closed */
+@media (hover: none) {
+  .panel:hover, .kpi:hover, .need:hover, .card2:hover, .btn:hover, .iconbtn:hover, .nav a:hover, tbody tr:hover, .ev:hover, .pipe a:hover { transform: none; }
+  .panel::before, .need::before, .card2::before { display: none; }
+}
+@media (max-width: 820px) {
+  .side { transform: translateX(-125%); }
+  .side.open { transform: none; }
+  .side:hover { transform: translateX(-125%); }
+  .side.open:hover { transform: none; }
+}
+@media (max-width: 820px) { .side { animation: none; } }
+/* keep the whole backdrop in the red family (no peach/orange drift) */
+.bg { background: linear-gradient(160deg, #fff2ee 0%, #ffddd6 45%, #ffcdc6 100%); }
+.bg i:nth-child(2) { background: #ff3b2a; opacity: .55; }
+.bg i:nth-child(3) { background: #f0402a; opacity: .46; }
+.bg i:nth-child(5) { background: #ff6a55; opacity: .4; }
