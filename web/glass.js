@@ -68,3 +68,6 @@ if (!reduce) {
     rm.call(this);
   };
 }
+
+// Chromium can bend what is behind the glass (liquid refraction); Safari/Firefox keep the frosted look
+if (/Chrome\//.test(navigator.userAgent) && !reduce) document.documentElement.classList.add('lens');
