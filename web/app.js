@@ -102,6 +102,8 @@ async function route() {
     if (k === 'dashboard') { $('#title').textContent = 'Dashboard'; await dashboard(view); }
     else if (k === 'settings') { $('#title').textContent = 'Settings'; settings(view); }
     else if (k === 'tower') { $('#title').textContent = 'Control tower'; await controlTowerView(view); }
+    else if (k === 'followups' && meta.user.role !== 'staff') { $('#title').textContent = 'Follow-up queue'; await followupsView(view); }
+    else if (k === 'crm' && meta.user.role !== 'staff') { $('#title').textContent = 'Marketing analytics'; await crmView(view); }
     else if (k === 'workload') { $('#title').textContent = 'Team workload'; await workloadView(view); }
     else if (k === 'receivables' && meta.user.role !== 'staff') { $('#title').textContent = 'Receivables'; await receivablesView(view); }
     else if (k === 'profitability' && meta.user.role !== 'staff') { $('#title').textContent = 'Client profitability'; await profitabilityView(view); }
@@ -169,6 +171,7 @@ const lbl = (to, id) => (id == null || id === '' ? '' : lookups[to]?.find((x) =>
 
 function cell(f, row) {
   const v = row[f.k];
+  if (f.t === 'score') return scoreBadge(row);
   if (f.t === 'ref') return esc(lbl(f.to, v) || (f.k === 'created_by' ? '' : ''));
   if (f.t === 'money') return v == null ? '' : money(v);
   if (f.t === 'multi') return esc((Array.isArray(v) ? v : []).map((x) => lbl(f.to, x)).filter(Boolean).join(', '));
@@ -186,7 +189,7 @@ async function entityView(view, key) {
   const e = meta.entities[key];
   const refs = [...new Set(e.fields.filter((f) => f.t === 'ref' || f.t === 'multi').map((f) => f.to))];
   await Promise.all([...refs.map(lookup), lookup('users')]);
-  const colF = e.cols.map((k) => e.fields.find((f) => f.k === k) || { k, l: k === 'created_by' ? 'Submitted by' : k, t: k === 'created_by' ? 'ref' : 'text', to: 'users' });
+  const colF = e.cols.map((k) => e.fields.find((f) => f.k === k) || (k === 'score' ? { k, l: 'Score', t: 'score' } : { k, l: k === 'created_by' ? 'Submitted by' : k, t: k === 'created_by' ? 'ref' : 'text', to: 'users' }));
   const modes = ['table', ...(e.board ? ['board'] : []), ...(e.calendar ? ['calendar'] : [])];
   const savedMode = localStorage.getItem('mode:' + key);
   let mode = modes.includes(savedMode) ? savedMode : modes.includes(e.defaultMode) ? e.defaultMode : 'table', q = '', cache = [];
@@ -223,13 +226,28 @@ async function entityView(view, key) {
           ev.preventDefault(); col.classList.remove('over');
           const row = rows.find((r) => r.id == ev.dataTransfer.getData('text'));
           if (!row || row[e.board] === col.dataset.v) return;
-          try { await api(`/e/${key}/${row.id}`, { method: 'PUT', body: { ...row, [e.board]: col.dataset.v } }); load(); } catch (err) { toast(err.message); }
+          try { let extra = {}; if (key === 'leads' && col.dataset.v === 'Lost') { const r = await askLostReason(); if (!r) return; extra.lost_reason = r; } await api(`/e/${key}/${row.id}`, { method: 'PUT', body: { ...row, ...extra, [e.board]: col.dataset.v } }); load(); } catch (err) { toast(err.message); }
         };
       });
     } else {
-      box.innerHTML = `<div class="tw"><table><thead><tr>${colF.map((f) => `<th>${esc(String(f.l).replace(/\s*\(.*$/, ''))}</th>`).join('')}</tr></thead><tbody>
-        ${rows.map((r) => `<tr data-id="${r.id}">${colF.map((f) => `<td>${cell(f, r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-      box.querySelectorAll('tbody tr').forEach((tr) => (tr.onclick = () => form(key, rows.find((r) => r.id == tr.dataset.id), load)));
+      drawTable(box, rows);
+    }
+  }
+  let sortK = null, sortD = 1;
+  const sortVal = (f, r) => { const v = r[f.k]; if (f.t === 'score') return leadScore(r) ?? -1; if (f.t === 'ref') return String(lbl(f.to, v) || '').toLowerCase(); if (f.t === 'money' || f.t === 'number') return +v || 0; return String(v ?? '').toLowerCase(); };
+  function drawTable(box, rows) {
+    const f0 = colF.find((f) => f.k === sortK); if (f0) rows = [...rows].sort((a, b) => { const x = sortVal(f0, a), y = sortVal(f0, b); return (x < y ? -1 : x > y ? 1 : 0) * sortD; });
+    const bulk = e.bulk && e.can.update, selected = new Set(box._sel || []);
+    box.innerHTML = `<div id="bulkbar"></div><div class="tw"><table><thead><tr>${bulk ? '<th style="width:34px"><input type="checkbox" id="selall"></th>' : ''}${colF.map((f) => `<th data-sort="${f.k}" class="srt">${esc(String(f.l).replace(/\s*\(.*$/, ''))}${f.k === sortK ? (sortD > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead><tbody>
+      ${rows.map((r) => `<tr data-id="${r.id}">${bulk ? `<td><input type="checkbox" class="sel" data-id="${r.id}" ${selected.has(String(r.id)) ? 'checked' : ''}></td>` : ''}${colF.map((f) => `<td>${cell(f, r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    box.querySelectorAll('th[data-sort]').forEach((th) => (th.onclick = () => { if (sortK === th.dataset.sort) sortD = -sortD; else { sortK = th.dataset.sort; sortD = 1; } box._sel = [...box.querySelectorAll('.sel:checked')].map((c) => c.dataset.id); drawTable(box, filtered()); }));
+    box.querySelectorAll('tbody tr').forEach((tr) => (tr.onclick = (ev) => { if (ev.target.closest('input')) return; form(key, rows.find((r) => r.id == tr.dataset.id), load); }));
+    if (bulk) {
+      const getSel = () => [...box.querySelectorAll('.sel:checked')].map((c) => rows.find((r) => String(r.id) === c.dataset.id)).filter(Boolean), bar = box.querySelector('#bulkbar');
+      const refresh = () => { bulkBar(rows, getSel, load, bar); const all = box.querySelectorAll('.sel'); const sa = box.querySelector('#selall'); if (sa) sa.checked = all.length > 0 && [...all].every((c) => c.checked); };
+      box.querySelectorAll('.sel').forEach((c) => (c.onchange = refresh));
+      box.querySelector('#selall').onchange = (ev) => { box.querySelectorAll('.sel').forEach((c) => (c.checked = ev.target.checked)); refresh(); };
+      refresh();
     }
   }
   function drawCal(box, rows) {
@@ -397,6 +415,7 @@ function form(key, row, after, preset = {}) {
     ov.querySelectorAll('[data-multi]').forEach((bx) => (body[bx.dataset.multi] = [...bx.querySelectorAll('input:checked')].map((i) => (/^\d+$/.test(i.value) ? Number(i.value) : i.value))));
     if (fields.some((f) => f.t === 'cadence')) body.cadence = cad.filter((c) => c.days.length);
     if (getChecklist) body[ckF.k] = getChecklist();
+    if (key === 'leads' && body.stage === 'Lost' && !body.lost_reason) { $('#fe', ov).textContent = 'Please choose why this lead was lost'; return; }
     try {
       if (key === 'shoots') { const clash = await shootConflicts(body, row?.id); if (clash.length && !confirm('Possible clash on that day:\n\n' + clash.join('\n') + '\n\nSave anyway?')) return; }
       const saved = await api(isNew ? `/e/${key}` : `/e/${key}/${row.id}`, { method: isNew ? 'POST' : 'PUT', body });
@@ -1036,15 +1055,16 @@ ACTIONS.freelancer_ledger = {
 };
 
 // ---------- comments & files inside a record ----------
-const COMMENTABLE = new Set(['content_items', 'shoots', 'tasks', 'projects', 'clients', 'contracts', 'meetings']);
-const ATTACHABLE = new Set(['clients', 'projects', 'content_items', 'shoots', 'tasks', 'contracts', 'meetings', 'freelancers', 'invoices', 'quotes']);
+const COMMENTABLE = new Set(['leads', 'content_items', 'shoots', 'tasks', 'projects', 'clients', 'contracts', 'meetings']);
+const ATTACHABLE = new Set(['leads', 'clients', 'projects', 'content_items', 'shoots', 'tasks', 'contracts', 'meetings', 'freelancers', 'invoices', 'quotes']);
 const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round((n || 0) / 1024)) + ' KB');
 const agoText = (t) => { const m = Math.round((Date.now() - new Date(t)) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }); };
 
 async function renderExtras(ov, key, row) {
   const box = $('#extras', ov); if (!box) return;
-  box.innerHTML = `${COMMENTABLE.has(key) ? '<div class="sec" style="margin:0">Comments</div><div id="cm" class="cmlist"></div>' : ''}${ATTACHABLE.has(key) ? '<div class="sec" style="margin:14px 0 0">Files</div><div id="at"></div>' : ''}`;
+  box.innerHTML = `${key === 'leads' ? '<div class="sec" style="margin:0">Activity</div><div id="tl"></div>' : ''}${COMMENTABLE.has(key) ? '<div class="sec" style="margin:0">Comments</div><div id="cm" class="cmlist"></div>' : ''}${ATTACHABLE.has(key) ? '<div class="sec" style="margin:14px 0 0">Files</div><div id="at"></div>' : ''}`;
   const names = (lookups.users || []);
+  if (key === 'leads') drawTimeline($('#tl', box), row);
   if (COMMENTABLE.has(key)) {
     const drawC = async () => {
       let list = []; try { list = await api('/comments', { body: { entity: key, record_id: row.id } }); } catch (err) { $('#cm', box).innerHTML = `<small style="color:var(--mute)">${esc(err.message)}</small>`; return; }
@@ -1279,6 +1299,201 @@ ACTIONS.log_followup = {
     });
   },
 };
+
+// ---------- CRM: scoring, bulk work, timeline, follow-up queue, analytics ----------
+const STAGES = ['New', 'Contacted', 'Replied', 'Meeting', 'Proposal', 'Won'];           // the happy path (Lost can happen anywhere)
+const PROB = { New: 0.05, Contacted: 0.1, Replied: 0.25, Meeting: 0.4, Proposal: 0.6 };   // chance to win, for the forecast
+const SRC_Q = { Referral: 15, 'Walk-in': 12, 'Ad campaign': 8, Instagram: 8, WhatsApp: 8, Website: 8, 'Google Maps': 6, Justdial: 4, 'Cold outreach': 3, Other: 2 };
+const LOST_REASONS = ['Budget too high', 'No response', 'Went with a competitor', 'Not ready yet', 'Wrong fit', 'Other'];
+const daysSince = (d) => (d ? Math.floor((Date.now() - new Date(String(d).length > 10 ? d : d + 'T00:00:00').getTime()) / 864e5) : null);
+function leadScore(l) {
+  if (!l || ['Won', 'Lost'].includes(l.stage)) return null;
+  let s = 0;
+  if (l.phone) s += 10; if (l.email) s += 5; if (l.instagram) s += 5; if (l.city) s += 2;
+  const v = +l.value || 0; s += v >= 50000 ? 15 : v >= 20000 ? 10 : v >= 10000 ? 5 : 0;
+  s += { New: 0, Contacted: 10, Replied: 25, Meeting: 40, Proposal: 50 }[l.stage] || 0;
+  s += SRC_Q[l.source] ?? 2;
+  const lc = daysSince(l.last_contact); if (lc !== null) s += lc <= 7 ? 10 : lc > 30 ? -10 : 0;
+  if (l.next_followup && l.next_followup < today()) s -= 5;
+  return Math.max(0, Math.min(100, Math.round(s)));
+}
+const scoreBadge = (l) => { const s = leadScore(l); if (s === null) return '<span style="color:var(--mute)">—</span>'; const c = s >= 65 ? 'hot' : s >= 35 ? 'warm' : 'cold'; return `<span class="sc ${c}" title="${c === 'hot' ? 'Hot' : c === 'warm' ? 'Warm' : 'Cold'} lead">${s}</span>`; };
+
+function askLostReason() {
+  return new Promise((resolve) => {
+    let done = false; const fin = (v) => { if (!done) { done = true; resolve(v); } };
+    const ov = formModal('Why was this lead lost?', `<div class="full"><label>Reason</label><select name="r">${LOST_REASONS.map((r) => `<option>${r}</option>`).join('')}</select></div>`, 'Save', async (f, close) => { fin(f.r); close(); });
+    const rm = () => fin(null); ov.querySelector('#x').addEventListener('click', rm); ov.addEventListener('mousedown', (e) => { if (e.target === ov) rm(); });
+  });
+}
+const logActivity = (lead_id, kind, body) => api('/activities', { method: 'POST', body: { lead_id, kind, body } }).catch(() => {});
+
+// ----- bulk bar (selection toolbar above the table) -----
+async function bulkApply(rows, patch, reload, label) {
+  let n = 0;
+  for (const r of rows) { try { await api(`/e/leads/${r.id}`, { method: 'PUT', body: { ...r, ...patch } }); n++; if (n % 5 === 0) toast(`${label}… ${n}/${rows.length}`); } catch (err) { toast(err.message); break; } }
+  toast(`${label}: ${n} lead${n === 1 ? '' : 's'} updated`); reload();
+}
+function bulkMessage(rows, reload) {
+  const withPhone = rows.filter((r) => last10(r.phone).length >= 10);
+  const def = `Hello {name},\n\nThis is ${meta.user.name} from Redeye Digital Solutions. We create social media content and videos for brands like {company}. Could we have a quick chat this week about how we can help you grow on Instagram?\n\nThank you!`;
+  const ov = document.createElement('div'); ov.className = 'ov';
+  ov.innerHTML = `<div class="modal" style="max-width:700px"><header><h3>💬 Message ${withPhone.length} leads</h3><button class="btn ghost sm" id="x">✕</button></header><div class="body" style="grid-template-columns:1fr">
+    <div><label>Message (use {name} and {company})</label><textarea id="tp" style="min-height:140px">${esc(def)}</textarea></div>
+    <small style="color:var(--mute)">WhatsApp opens one chat at a time with each person's name filled in; you press send. Each lead you open is logged as contacted with a follow-up in 3 days.${rows.length > withPhone.length ? ` ${rows.length - withPhone.length} selected lead(s) have no phone number and are skipped.` : ''}</small>
+    <div class="pick" style="max-height:34vh">${withPhone.map((r) => `<div class="row" data-id="${r.id}"><span><b>${esc(r.name)}</b><br><small>${esc(r.company || '')} · ${esc(r.phone)}</small></span><button class="btn sm" data-wa="${r.id}">Open WhatsApp</button></div>`).join('') || '<small>None of the selected leads has a phone number.</small>'}</div>
+    <div class="err" id="fe"></div></div><footer><span id="cn" style="flex:1;align-self:center;color:var(--mute)">0 sent</span><button class="btn ghost" id="dn">Done</button></footer></div>`;
+  document.body.append(ov); let sent = 0;
+  const close = () => { ov.remove(); reload(); }; $('#x', ov).onclick = close; $('#dn', ov).onclick = close;
+  ov.querySelectorAll('[data-wa]').forEach((b) => (b.onclick = async () => {
+    const lead = withPhone.find((r) => String(r.id) === b.dataset.wa), text = $('#tp', ov).value.replace(/\{name\}/g, String(lead.name).split(' ')[0]).replace(/\{company\}/g, lead.company || 'your business');
+    window.open(`https://wa.me/${waNumber(lead.phone)}?text=${encodeURIComponent(text)}`, '_blank');
+    b.disabled = true; b.textContent = '✓ Opened'; $('#cn', ov).textContent = `${++sent} sent`;
+    try { await api(`/e/leads/${lead.id}`, { method: 'PUT', body: { ...lead, last_contact: today(), next_followup: addDays(3), stage: lead.stage === 'New' ? 'Contacted' : lead.stage } }); await logActivity(lead.id, 'WhatsApp', 'Bulk intro message'); } catch {}
+  }));
+}
+function bulkBar(rows, getSel, reload, box) {
+  const sel = getSel(); if (!sel.length) { box.innerHTML = ''; return; }
+  const admin = meta.user.role === 'admin';
+  box.innerHTML = `<div class="panel bulk"><b>${sel.length} selected</b>
+    <select id="bs"><option value="">Set stage…</option>${meta.entities.leads.fields.find((f) => f.k === 'stage').opts.map((o) => `<option>${o}</option>`).join('')}</select>
+    <select id="bo"><option value="">Assign owner…</option>${(lookups.users || []).map((u) => `<option value="${u.id}">${esc(u.label)}</option>`).join('')}</select>
+    <input id="bd" type="date" title="Next follow-up" style="width:auto"><button class="btn ghost sm" id="bdb">Set follow-up</button>
+    <button class="btn ghost sm" id="bt">+ Tag</button><button class="btn sm" id="bm">💬 Message</button>${admin ? '<button class="btn danger sm" id="bx">Delete</button>' : ''}<button class="btn ghost sm" id="bc">Clear</button></div>`;
+  const apply = (p, l) => bulkApply(sel, p, reload, l);
+  $('#bs', box).onchange = async (e) => { const v = e.target.value; if (!v) return; let p = { stage: v }; if (v === 'Lost') { const r = await askLostReason(); if (!r) return; p.lost_reason = r; } if (['Won', 'Lost'].includes(v)) p.next_followup = ''; apply(p, 'Stage'); };
+  $('#bo', box).onchange = (e) => e.target.value && apply({ owner_id: e.target.value }, 'Owner');
+  $('#bdb', box).onclick = () => { const d = $('#bd', box).value; if (!d) return toast('Pick a date first'); apply({ next_followup: d }, 'Follow-up'); };
+  $('#bt', box).onclick = async () => {
+    const t = (prompt('Tag to add to the selected leads:') || '').trim(); if (!t) return;
+    let n = 0;
+    for (const r of sel) { const tags = [...new Set(String(r.tags || '').split(',').map((x) => x.trim()).filter(Boolean).concat(t))].join(', '); try { await api(`/e/leads/${r.id}`, { method: 'PUT', body: { ...r, tags } }); n++; } catch (err) { toast(err.message); break; } }
+    toast(`Tagged ${n} leads`); reload();
+  };
+  $('#bm', box).onclick = () => bulkMessage(sel, reload);
+  if ($('#bx', box)) $('#bx', box).onclick = async () => { if (!confirm(`Delete ${sel.length} leads permanently?`)) return; let n = 0; for (const r of sel) { try { await api(`/e/leads/${r.id}`, { method: 'DELETE' }); n++; } catch (err) { toast(err.message); break; } } toast(`${n} deleted`); reload(); };
+  $('#bc', box).onclick = () => { document.querySelectorAll('.sel,#selall').forEach((c) => (c.checked = false)); box.innerHTML = ''; };
+}
+
+// ----- timeline inside a lead -----
+const ACT_ICON = { Created: '✨', Stage: '🔀', Call: '📞', WhatsApp: '💬', Email: '✉️', Meeting: '🤝', Note: '📝' };
+async function drawTimeline(box, lead) {
+  let list = []; try { list = await api('/activities', { body: { lead_id: lead.id } }); } catch (err) { box.innerHTML = `<small style="color:var(--mute)">${esc(err.message)}</small>`; return; }
+  box.innerHTML = `<div class="tlq">${['Call', 'WhatsApp', 'Email', 'Meeting', 'Note'].map((k) => `<button type="button" class="btn ghost sm" data-k="${k}">${ACT_ICON[k]} ${k}</button>`).join('')}</div>
+    <div class="tl">${list.map((a) => `<div class="tli"><span class="ti">${ACT_ICON[a.kind] || '•'}</span><div><b>${esc(a.kind)}</b> ${a.body ? '· ' + esc(a.body) : ''}<br><small style="color:var(--mute)">${esc(lbl('users', a.created_by) || '')} · ${esc(agoText(a.created_at))}</small></div></div>`).join('') || '<small style="color:var(--mute)">No activity yet</small>'}</div>`;
+  box.querySelectorAll('[data-k]').forEach((b) => (b.onclick = async () => {
+    const note = prompt(`${b.dataset.k}: what happened? (short note)`); if (note === null) return;
+    await logActivity(lead.id, b.dataset.k, note.trim() || null);
+    if (b.dataset.k !== 'Note') { try { await api(`/e/leads/${lead.id}`, { method: 'PUT', body: { ...lead, last_contact: today(), stage: lead.stage === 'New' ? 'Contacted' : lead.stage } }); lead.last_contact = today(); } catch {} }
+    drawTimeline(box, lead);
+  }));
+}
+
+// ----- log follow-up (replaces the simple version) -----
+ACTIONS.log_followup = {
+  label: '📞 Log follow-up',
+  async run(lead, ctx) {
+    formModal(`Follow-up · ${lead.name}`, `<div><label>How?</label><select name="how"><option>Call</option><option>WhatsApp</option><option>Email</option><option>Meeting</option></select></div>
+      <div><label>Outcome</label><select name="out"><option value="Contacted">No reply yet</option><option value="Replied">They replied</option><option value="Meeting">Meeting scheduled</option><option value="Proposal">Proposal sent</option><option value="Won">Won 🎉</option><option value="Lost">Not interested / lost</option></select></div>
+      <div><label>Follow up again in</label><select name="days"><option value="2">2 days</option><option value="3" selected>3 days</option><option value="7">1 week</option><option value="14">2 weeks</option><option value="30">1 month</option><option value="">No follow-up</option></select></div>
+      <div><label>If lost: reason</label><select name="lr"><option value=""></option>${LOST_REASONS.map((r) => `<option>${r}</option>`).join('')}</select></div>
+      <div class="full"><label>Note</label><textarea name="note" placeholder="e.g. wants reel samples, budget ~₹30k"></textarea></div>`, 'Save', async (f, close) => {
+      if (f.out === 'Lost' && !f.lr) throw new Error('Choose why this lead was lost');
+      const closed = ['Won', 'Lost'].includes(f.out), notes = [lead.notes, f.note && `${NICE_DATE(today())}: ${f.note}`].filter(Boolean).join('\n');
+      await api(`/e/leads/${lead.id}`, { method: 'PUT', body: { ...lead, stage: f.out, lost_reason: f.out === 'Lost' ? f.lr : lead.lost_reason, last_contact: today(), next_followup: closed || !f.days ? '' : addDays(+f.days), notes } });
+      await logActivity(lead.id, f.how, f.note || ({ Contacted: 'No reply yet', Replied: 'They replied', Meeting: 'Meeting scheduled', Proposal: 'Proposal sent', Won: 'Won', Lost: 'Lost' })[f.out]);
+      close(); if (ctx.close) ctx.close(); toast('Follow-up logged'); ctx.after();
+    });
+  },
+};
+const _wl = ACTIONS.whatsapp_lead.run;
+ACTIONS.whatsapp_lead.run = async (lead, ctx) => _wl(lead, { ...ctx, after: () => { logActivity(lead.id, 'WhatsApp', 'Intro message'); ctx?.after?.(); } });
+
+// ----- follow-up queue page -----
+async function followupsView(view) {
+  const leads = (await api('/e/leads')).filter((l) => !['Won', 'Lost'].includes(l.stage)), t0 = today(), wk = addDays(7);
+  await lookup('users');
+  const sc = (l) => leadScore(l) ?? 0, byScore = (a, b) => sc(b) - sc(a);
+  const lists = {
+    overdue: leads.filter((l) => l.next_followup && l.next_followup < t0).sort((a, b) => (a.next_followup < b.next_followup ? -1 : 1)),
+    today: leads.filter((l) => l.next_followup === t0).sort(byScore),
+    week: leads.filter((l) => l.next_followup > t0 && l.next_followup <= wk).sort((a, b) => (a.next_followup < b.next_followup ? -1 : 1)),
+    nodate: leads.filter((l) => !l.next_followup).sort(byScore),
+    fresh: leads.filter((l) => l.stage === 'New' && !l.last_contact).sort(byScore),
+  };
+  let tab = lists.overdue.length ? 'overdue' : lists.today.length ? 'today' : 'fresh';
+  const labels = { overdue: 'Overdue', today: 'Today', week: 'Next 7 days', fresh: 'Never contacted', nodate: 'No date set' };
+  const reload = () => route();
+  const card = (l) => `<div class="need ${l.next_followup && l.next_followup < t0 ? 'bad' : 'info'}"><div class="nt"><span class="ni">${scoreBadge(l)}</span><span><b>${esc(l.name)}</b> <small style="color:var(--mute)">${esc(l.company || '')}</small><br>
+      <small style="color:var(--mute)">${esc([l.stage, l.source, l.city, l.value ? money(l.value) : '', l.next_followup ? 'due ' + NICE_DATE(l.next_followup) : '', l.last_contact ? 'last contact ' + daysSince(l.last_contact) + 'd ago' : 'never contacted', lbl('users', l.owner_id) && 'owner ' + lbl('users', l.owner_id)].filter(Boolean).join(' · '))}</small>${l.notes ? `<br><small>${esc(String(l.notes).split('\n').pop().slice(0, 110))}</small>` : ''}</span></div>
+    <div class="na">${l.phone ? `<a class="btn sm" href="tel:+${waNumber(l.phone)}">📞 Call</a><button class="btn ghost sm" data-w="${l.id}">💬 WhatsApp</button>` : ''}<button class="btn ghost sm" data-l="${l.id}">✅ Log</button><button class="btn ghost sm" data-s="${l.id}:1">+1d</button><button class="btn ghost sm" data-s="${l.id}:3">+3d</button><button class="btn ghost sm" data-o="${l.id}">Open</button></div></div>`;
+  const draw = () => {
+    view.innerHTML = `<div class="seg" style="margin-bottom:14px">${Object.keys(labels).map((k) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${labels[k]} (${lists[k].length})</button>`).join('')}</div>
+      ${lists[tab].map(card).join('') || '<div class="empty">🎉 Nothing here. Everything is up to date.</div>'}`;
+    view.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => { tab = b.dataset.t; draw(); }));
+    const find = (id) => leads.find((l) => String(l.id) === String(id));
+    view.querySelectorAll('[data-w]').forEach((b) => (b.onclick = () => ACTIONS.whatsapp_lead.run(find(b.dataset.w), { close() {}, after: reload }).catch((e) => toast(e.message))));
+    view.querySelectorAll('[data-l]').forEach((b) => (b.onclick = () => ACTIONS.log_followup.run(find(b.dataset.l), { close() {}, after: reload })));
+    view.querySelectorAll('[data-o]').forEach((b) => (b.onclick = () => form('leads', find(b.dataset.o), reload)));
+    view.querySelectorAll('[data-s]').forEach((b) => (b.onclick = async () => { const [id, n] = b.dataset.s.split(':'); const l = find(id); await api(`/e/leads/${id}`, { method: 'PUT', body: { ...l, next_followup: addDays(+n) } }); toast(`Moved to ${NICE_DATE(addDays(+n))}`); reload(); }));
+  };
+  draw();
+}
+
+// ----- analytics page -----
+async function crmView(view) {
+  const [leadsAll, acts] = await Promise.all([api('/e/leads'), api('/activities', { body: {} }).catch(() => [])]);
+  await Promise.all([lookup('users')]);
+  let range = 90;
+  const draw = () => {
+    const cutoff = range ? new Date(Date.now() - range * 864e5).toISOString() : '', t0 = today();
+    const L = leadsAll.filter((l) => !cutoff || String(l.created_at || '') >= cutoff), N = L.length || 1;
+    const actBy = {}; acts.forEach((a) => (actBy[a.lead_id] ||= []).push(a));
+    const reached = (l) => { let r = Math.max(STAGES.indexOf(l.stage), 0); for (const a of actBy[l.id] || []) if (a.to_stage) r = Math.max(r, STAGES.indexOf(a.to_stage)); if (l.last_contact || (actBy[l.id] || []).some((a) => ['Call', 'WhatsApp', 'Email', 'Meeting'].includes(a.kind))) r = Math.max(r, 1); return r; };
+    const won = L.filter((l) => l.stage === 'Won'), lost = L.filter((l) => l.stage === 'Lost'), open = L.filter((l) => !['Won', 'Lost'].includes(l.stage));
+    const sum = (a, k = 'value') => a.reduce((s, x) => s + (+x[k] || 0), 0), pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+    const fun = STAGES.map((s, i) => ({ s, n: L.filter((l) => reached(l) >= i).length }));
+    const pipe = sum(open), weighted = open.reduce((s, l) => s + (+l.value || 0) * (PROB[l.stage] || 0), 0);
+    const closeDays = won.map((l) => { const a = (actBy[l.id] || []).find((x) => x.to_stage === 'Won'); return a ? (new Date(a.created_at) - new Date(l.created_at)) / 864e5 : null; }).filter((x) => x !== null);
+    const avgClose = closeDays.length ? Math.round(closeDays.reduce((a, b) => a + b, 0) / closeDays.length) : null;
+    const stale = open.filter((l) => (l.last_contact ? daysSince(l.last_contact) >= 7 : daysSince(l.created_at) >= 2)).sort((a, b) => (leadScore(b) || 0) - (leadScore(a) || 0));
+    const overdue = open.filter((l) => l.next_followup && l.next_followup < t0).length, unowned = open.filter((l) => !l.owner_id).length;
+    const grp = (keyFn) => { const m = {}; L.forEach((l) => { const k = keyFn(l); if (k) (m[k] ||= []).push(l); }); return Object.entries(m).map(([k, a]) => ({ k, n: a.length, replied: a.filter((l) => reached(l) >= 2).length, won: a.filter((l) => l.stage === 'Won').length, val: sum(a.filter((l) => l.stage === 'Won')), open: sum(a.filter((l) => !['Won', 'Lost'].includes(l.stage))) })).sort((a, b) => b.val - a.val || b.n - a.n); };
+    const bySrc = grp((l) => l.source), byCamp = grp((l) => l.campaign), byCity = grp((l) => l.city).slice(0, 8), byOwner = grp((l) => lbl('users', l.owner_id) || 'Unassigned');
+    const lostBy = {}; lost.forEach((l) => (lostBy[l.lost_reason || 'No reason recorded'] = (lostBy[l.lost_reason || 'No reason recorded'] || 0) + 1));
+    const lostRows = Object.entries(lostBy).sort((a, b) => b[1] - a[1]);
+    // weekly trend (last 12 weeks, all leads)
+    const wkStart = (d) => iso(mondayOf(new Date(d))), weeks = [...Array(12)].map((_, i) => iso(new Date(mondayOf(new Date()).getTime() - (11 - i) * 7 * 864e5)));
+    const created = {}, wonW = {}; leadsAll.forEach((l) => { if (l.created_at) { const k = wkStart(l.created_at); created[k] = (created[k] || 0) + 1; } });
+    acts.filter((a) => a.to_stage === 'Won').forEach((a) => { const k = wkStart(a.created_at); wonW[k] = (wonW[k] || 0) + 1; });
+    const tmax = Math.max(1, ...weeks.map((w) => created[w] || 0));
+    const money0 = (n) => money(Math.round(n || 0)), kpi = (t, v, s = '') => `<div class="panel kpi"><small>${t}</small><div class="v">${v}</div><div class="s">${s}</div></div>`;
+    // insights in plain words
+    const tips = [], srcOk = bySrc.filter((x) => x.n >= 3).sort((a, b) => pct(b.won, b.n) - pct(a.won, a.n) || b.val - a.val);
+    if (srcOk[0] && srcOk[0].won) tips.push(`Best source: <b>${esc(srcOk[0].k)}</b> turns ${pct(srcOk[0].won, srcOk[0].n)}% of leads into clients (${srcOk[0].won} of ${srcOk[0].n}).`);
+    if (byCamp[0] && byCamp[0].val) tips.push(`Campaign bringing the most revenue: <b>${esc(byCamp[0].k)}</b> (${money0(byCamp[0].val)} won).`);
+    let worst = null; for (let i = 1; i < fun.length; i++) { const d = fun[i - 1].n ? 1 - fun[i].n / fun[i - 1].n : 0; if (fun[i - 1].n >= 5 && (!worst || d > worst.d)) worst = { d, from: fun[i - 1].s, to: fun[i].s }; }
+    if (worst) tips.push(`Biggest drop-off: leads that reach <b>${esc(worst.from)}</b> but not <b>${esc(worst.to)}</b> (${Math.round(worst.d * 100)}% lost). Work on that step.`);
+    if (lostRows[0]) tips.push(`Most common reason for losing: <b>${esc(lostRows[0][0])}</b> (${lostRows[0][1]} leads).`);
+    if (stale.length) tips.push(`<b>${stale.length}</b> open leads haven't been touched in 7+ days${stale.length > 4 ? '. Open the Follow-up queue to clear them.' : '.'}`);
+    if (unowned) tips.push(`<b>${unowned}</b> open leads have no owner, so nobody gets their reminders. Assign them in bulk from the Leads list.`);
+    const tbl = (rows, head) => `<div class="tw"><table><thead><tr><th>${head}</th><th>Leads</th><th>Replied</th><th>Won</th><th>Win rate</th><th>Won value</th><th>Open pipeline</th></tr></thead><tbody>${rows.map((r) => `<tr style="cursor:default"><td><b>${esc(r.k)}</b></td><td>${r.n}</td><td>${pct(r.replied, r.n)}%</td><td>${r.won}</td><td><span class="tag ${pct(r.won, r.n) >= 20 ? 'ok' : pct(r.won, r.n) >= 8 ? 'warn' : ''}">${pct(r.won, r.n)}%</span></td><td>${r.val ? money0(r.val) : '—'}</td><td>${r.open ? money0(r.open) : '—'}</td></tr>`).join('') || '<tr><td colspan="7" style="color:var(--mute)">No data</td></tr>'}</tbody></table></div>`;
+    view.innerHTML = `<div class="bar"><div class="seg" id="rg">${[[30, '30 days'], [90, '90 days'], [180, '6 months'], [365, '1 year'], [0, 'All time']].map(([d, l]) => `<button data-d="${d}" class="${d === range ? 'on' : ''}">${l}</button>`).join('')}</div><span class="sp"></span><button class="btn ghost" id="gofq">📞 Follow-up queue</button><button class="btn ghost" id="gol">🎯 Leads</button></div>
+      <div class="grid">${kpi('Leads', L.length, `${open.length} still open`)}${kpi('Contacted', pct(fun[1].n, N) + '%', `${fun[1].n} of ${L.length}`)}${kpi('Replied', pct(fun[2].n, N) + '%', `${fun[2].n} replied or further`)}${kpi('Won', won.length, `${pct(won.length, N)}% of leads · ${pct(won.length, won.length + lost.length)}% of closed`)}${kpi('Won value', money0(sum(won)), won.length ? `avg ${money0(sum(won) / won.length)}` : '')}${kpi('Open pipeline', money0(pipe), `forecast ${money0(weighted)} (weighted)`)}${kpi('Avg days to win', avgClose === null ? '—' : avgClose, closeDays.length ? `from ${closeDays.length} wins` : 'no wins yet')}${kpi('Needs attention', overdue + stale.length, `${overdue} overdue follow-ups · ${stale.length} untouched`)}</div>
+      ${tips.length ? `<div class="panel" style="margin-bottom:14px;border-color:var(--brand)"><h3>💡 What the numbers say</h3>${tips.map((t) => `<p style="margin:6px 0">${t}</p>`).join('')}</div>` : ''}
+      <div class="stack" style="margin-top:0"><div class="panel"><h3>Funnel</h3>${fun.map((f, i) => `<div class="row" style="gap:12px"><span style="width:92px">${f.s}</span><div style="flex:1"><div class="bar2" style="width:${Math.max(3, pct(f.n, fun[0].n || 1))}%"></div></div><b style="width:110px;text-align:right">${f.n} <small style="color:var(--mute)">${i ? pct(f.n, fun[i - 1].n) + '% of prev' : ''}</small></b></div>`).join('')}<p style="color:var(--mute);font-size:12px;margin:8px 0 0">Counts every lead that ever reached the stage.</p></div>
+        <div class="panel"><h3>New leads per week (12 weeks)</h3><div class="trend">${weeks.map((w) => `<div class="tc"><div class="tb" style="height:${Math.max(4, ((created[w] || 0) / tmax) * 100)}%" title="${created[w] || 0} new, ${wonW[w] || 0} won">${wonW[w] ? `<i style="height:${Math.min(100, (wonW[w] / (created[w] || 1)) * 100)}%"></i>` : ''}</div><small>${w.slice(5)}</small></div>`).join('')}</div><div class="legend"><span><i class="dot" style="background:var(--brand)"></i>New leads</span><span><i class="dot" style="background:#15803d"></i>Won (share)</span></div></div></div>
+      <div class="panel" style="margin-top:14px"><h3>By source</h3>${tbl(bySrc, 'Source')}</div>
+      <div class="panel" style="margin-top:14px"><h3>By campaign</h3>${tbl(byCamp, 'Campaign')}</div>
+      <div class="stack"><div class="panel"><h3>By owner</h3>${tbl(byOwner, 'Owner')}</div><div class="panel"><h3>By city</h3>${tbl(byCity, 'City')}</div></div>
+      <div class="stack"><div class="panel"><h3>Why leads are lost</h3>${lostRows.map(([r, n]) => `<div class="row" style="gap:12px"><span style="width:170px">${esc(r)}</span><div style="flex:1"><div class="bar2" style="width:${Math.max(4, (n / lostRows[0][1]) * 100)}%"></div></div><b>${n}</b></div>`).join('') || '<div style="color:var(--mute)">No lost leads yet</div>'}</div>
+        <div class="panel"><h3>⚠️ Going cold (${stale.length})</h3>${stale.slice(0, 8).map((l) => `<div class="row"><span><a href="#" data-o="${l.id}">${esc(l.name)}</a> ${scoreBadge(l)}<br><small style="color:var(--mute)">${esc(l.stage)} · ${l.last_contact ? daysSince(l.last_contact) + ' days since contact' : 'never contacted'}${l.value ? ' · ' + money0(l.value) : ''}</small></span></div>`).join('') || '<div style="color:var(--mute)">Nothing is going cold 🎉</div>'}</div></div>`;
+    view.querySelectorAll('#rg button').forEach((b) => (b.onclick = () => { range = +b.dataset.d; draw(); }));
+    view.querySelectorAll('[data-o]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); form('leads', leadsAll.find((l) => String(l.id) === a.dataset.o), () => route()); }));
+    $('#gofq', view).onclick = () => (location.hash = '#/followups'); $('#gol', view).onclick = () => (location.hash = '#/leads');
+  };
+  draw();
+}
 
 // ---------- task reminders ----------
 ACTIONS.remind_task = {

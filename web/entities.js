@@ -60,7 +60,8 @@ export const ENTITIES = {
   },
   leads: {
     label: 'Leads (CRM)', icon: '🎯', labelField: 'name', board: 'stage', calendar: { date: 'next_followup' }, filters: ['stage', 'owner_id', 'source'],
-    cols: ['name', 'company', 'phone', 'source', 'stage', 'next_followup', 'owner_id'],
+    cols: ['name', 'company', 'phone', 'source', 'stage', 'score', 'next_followup', 'owner_id'],
+    bulk: true,
     fields: [
       { k: 'name', l: 'Lead name', t: 'text', req: 1 },
       { k: 'company', l: 'Company / brand', t: 'text' },
@@ -74,6 +75,7 @@ export const ENTITIES = {
       { k: 'interest', l: 'Interested in', t: 'text' },
       { k: 'value', l: 'Expected value', t: 'money' },
       { k: 'stage', l: 'Stage', t: 'select', opts: ['New', 'Contacted', 'Replied', 'Meeting', 'Proposal', 'Won', 'Lost'], def: 'New' },
+      { k: 'lost_reason', l: 'Why lost? (if Lost)', t: 'select', opts: ['Budget too high', 'No response', 'Went with a competitor', 'Not ready yet', 'Wrong fit', 'Other'] },
       { k: 'owner_id', l: 'Owner', t: 'ref', to: 'users' },
       { k: 'next_followup', l: 'Next follow-up', t: 'date' },
       { k: 'last_contact', l: 'Last contacted', t: 'date' },
@@ -490,6 +492,8 @@ export const NAV = NAV_GROUPS.flatMap(([, ks]) => ks);
 
 // Pages that are not plain record lists (built in app.js). roles = who sees them in the menu.
 export const CUSTOM_PAGES = [
+  { k: 'followups', icon: '📞', label: 'Follow-up queue', group: 'Sales', roles: MGR },
+  { k: 'crm', icon: '📊', label: 'Marketing analytics', group: 'Sales', roles: MGR },
   { k: 'workload', icon: '👷', label: 'Team workload', group: 'Delivery', roles: ALL },
   { k: 'receivables', icon: '💰', label: 'Receivables', group: 'Finance', roles: MGR },
   { k: 'profitability', icon: '📈', label: 'Profitability', group: 'Finance', roles: MGR },

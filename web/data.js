@@ -98,7 +98,7 @@ export async function api(path, opts = {}) {
       if (!e.perms.read.includes(user.role)) continue;
       entities[k] = {
         label: e.label, icon: e.icon, labelField: e.labelField, board: e.board, cols: e.cols, fields: e.fields,
-        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode, import: e.import,
+        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode, import: e.import, bulk: e.bulk,
         can: Object.fromEntries(['create', 'update', 'del'].map((p) => [p, e.perms[p].includes(user.role)])),
       };
     }
@@ -177,6 +177,12 @@ export async function api(path, opts = {}) {
     const u = await me(), rows = (body.rows || []).map((r) => ({ ...payload(key, r, true), created_by: u.id })); let n = 0;
     for (let i = 0; i < rows.length; i += 200) { const chunk = rows.slice(i, i + 200); ok(await sb.from(table(key)).insert(chunk)); n += chunk.length; }
     return { count: n };
+  }
+  if (path === '/activities') {
+    if (method === 'POST') return ok(await sb.from('lead_activities').insert({ lead_id: body.lead_id, kind: body.kind, body: body.body || null }).select().single());
+    let qb = sb.from('lead_activities').select('*').order('created_at', { ascending: false });
+    qb = body.lead_id ? qb.eq('lead_id', body.lead_id).limit(200) : qb.limit(5000);
+    return ok(await qb);
   }
   if (path === '/tasks/remind') { ok(await sb.rpc('remind_task', { tid: body.id, note: body.note || null })); return {}; }
   if (path === '/tasks/snooze') { ok(await sb.rpc('snooze_task', { tid: body.id, mins: body.mins })); return {}; }

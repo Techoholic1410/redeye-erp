@@ -9,10 +9,42 @@ const day = (n = 0) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 1
 const now = () => new Date().toISOString();
 const uid = (n) => `00000000-0000-4000-8000-00000000000${n}`;
 
+
+// ---- demo CRM data (deterministic) ----
+const ago = (n) => new Date(Date.now() - n * 864e5).toISOString();
+function demoLeads() {
+  const nm = ['Anita Rao', 'Ravi Kumar', 'Priya Nair', 'Karthik R', 'Meena S', 'Arjun D', 'Lakshmi P', 'Suresh B', 'Divya M', 'Vignesh T', 'Kavya L', 'Mohan K', 'Sneha R', 'Prakash V', 'Deepa N', 'Harish G', 'Nithya A', 'Gopal S', 'Revathi C', 'Senthil M', 'Aarthi J', 'Balaji P', 'Janani K', 'Murugan D', 'Pooja V', 'Dinesh R', 'Shalini T', 'Rajesh N', 'Uma S', 'Vijay A'];
+  const biz = ['Rao Sweets', 'Ravi Gym', 'Green Leaf Organics', 'Sri Sakthi Jewellers', 'Meena Boutique', 'Arjun Motors', 'Lakshmi Silks', 'Suresh Hardware', 'Divya Salon', 'Vignesh Cafe', 'Kavya Bakery', 'Mohan Clinic', 'Sneha Dance Academy', 'Prakash Builders', 'Deepa Fashions', 'Harish Fitness', 'Nithya Kitchen', 'Gopal Electronics', 'Revathi Jewels', 'Senthil Agro', 'Aarthi Skin Care', 'Balaji Tutorials', 'Janani Florist', 'Murugan Textiles', 'Pooja Studio', 'Dinesh Auto Care', 'Shalini Foods', 'Rajesh Realty', 'Uma Catering', 'Vijay Cycles'];
+  const src = ['Instagram', 'Instagram', 'Referral', 'Website', 'Cold outreach', 'Ad campaign', 'WhatsApp', 'Google Maps', 'Justdial', 'Walk-in', 'Instagram', 'Cold outreach'];
+  const camp = ['Nov reels push', 'Festive 2026', 'Brand film offer', 'Always-on', 'Diwali ads'];
+  const city = ['Coimbatore', 'Pollachi', 'Tiruppur', 'Erode', 'Salem', 'Chennai'];
+  const stage = ['New', 'New', 'Contacted', 'Contacted', 'Replied', 'Meeting', 'Proposal', 'Won', 'Lost', 'Contacted', 'Won', 'New'];
+  const own = [uid(1), uid(2), uid(2), uid(1), null], lost = ['Budget too high', 'No response', 'Went with a competitor', 'Not ready yet'];
+  return nm.map((n, i) => {
+    const st = stage[(i * 7 + 3) % stage.length], owner = own[i % own.length], open = !['Won', 'Lost'].includes(st);
+    return { id: i + 1, name: n, company: biz[i], phone: '9840' + String(100000 + i * 7919).slice(-6), email: i % 3 === 0 ? n.split(' ')[0].toLowerCase() + '@example.com' : null, instagram: i % 2 === 0 ? '@' + biz[i].toLowerCase().replace(/[^a-z]/g, '') : null,
+      city: city[i % city.length], source: src[(i * 5 + 1) % src.length], campaign: camp[i % camp.length], interest: ['Monthly reels package', 'Festive video ads', 'Brand film', 'Social media management'][i % 4], value: 10000 + ((i * 13) % 11) * 10000, stage: st, lost_reason: st === 'Lost' ? lost[i % lost.length] : null,
+      owner_id: owner, next_followup: open ? [day(-3), day(0), day(1), day(4), null, day(9), day(-1)][i % 7] : null, last_contact: st === 'New' ? null : day(-((i * 3) % 14) - 1), tags: i % 4 === 0 ? 'priority' : null,
+      notes: i % 5 === 0 ? 'Asked for pricing and samples' : null, created_by: uid(1), created_at: ago(i * 3 + (i % 4)) };
+  });
+}
+function demoActivities() {
+  const L = demoLeads(), out = []; let id = 1; const order = ['New', 'Contacted', 'Replied', 'Meeting', 'Proposal'];
+  for (const l of L) {
+    const t0 = new Date(l.created_at).getTime();
+    out.push({ id: id++, lead_id: l.id, kind: 'Created', body: 'Source: ' + l.source, to_stage: 'New', created_by: uid(1), created_at: l.created_at });
+    const target = ['Won', 'Lost'].includes(l.stage) ? 'Proposal' : l.stage, upto = order.indexOf(target);
+    for (let k = 1; k <= upto; k++) out.push({ id: id++, lead_id: l.id, kind: 'Stage', body: `${order[k - 1]} → ${order[k]}`, from_stage: order[k - 1], to_stage: order[k], created_by: uid(2), created_at: new Date(t0 + k * (1 + (l.id % 3)) * 864e5).toISOString() });
+    if (['Won', 'Lost'].includes(l.stage)) out.push({ id: id++, lead_id: l.id, kind: 'Stage', body: `Proposal → ${l.stage}`, from_stage: 'Proposal', to_stage: l.stage, created_by: uid(2), created_at: new Date(t0 + (upto + 2) * (1 + (l.id % 3)) * 864e5).toISOString() });
+    if (upto >= 1) out.push({ id: id++, lead_id: l.id, kind: l.id % 2 ? 'Call' : 'WhatsApp', body: l.id % 2 ? 'Spoke briefly, wants samples' : 'Sent intro and portfolio', created_by: uid(2), created_at: new Date(t0 + 864e5).toISOString() });
+  }
+  return out;
+}
+
 function seed() {
   const items = (a) => JSON.stringify(a);
   return {
-    seq: { clients: 4, leads: 5, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4, packages: 3, content_plans: 2, content_items: 20, shoots: 3, meetings: 3, freelancers: 4, quotes: 2, payments: 3, contracts: 2, equipment_log: 2, task_templates: 5, comments: 1, attachments: 1, payment_requests: 2 },
+    seq: { clients: 4, leads: 40, lead_activities: 400, projects: 3, tasks: 6, invoices: 4, expenses: 4, employees: 4, leaves: 2, attendance: 1, tickets: 3, assets: 4, packages: 3, content_plans: 2, content_items: 20, shoots: 3, meetings: 3, freelancers: 4, quotes: 2, payments: 3, contracts: 2, equipment_log: 2, task_templates: 5, comments: 1, attachments: 1, payment_requests: 2 },
     users: [
       { id: uid(1), name: 'Asha Admin', email: 'admin@demo', role: 'admin', active: 'Yes' },
       { id: uid(2), name: 'Manoj Manager', email: 'manager@demo', role: 'manager', active: 'Yes' },
@@ -23,12 +55,8 @@ function seed() {
       { id: 2, name: 'Bluewave Foods', contact_person: 'Rahul Mehta', email: 'rahul@bluewave.example', phone: '98200 22222', status: 'Active' },
       { id: 3, name: 'Nova Clinics', contact_person: 'Dr. Iyer', email: 'office@nova.example', phone: '98200 33333', status: 'Prospect' },
     ],
-    leads: [
-      { id: 1, name: 'Zen Cafe', company: 'Zen Cafe', source: 'Website', value: 60000, stage: 'New', owner_id: uid(2) },
-      { id: 2, name: 'Orbit Gym', company: 'Orbit Fitness', source: 'Referral', value: 150000, stage: 'Contacted', owner_id: uid(2) },
-      { id: 3, name: 'Pixel Studio', company: 'Pixel Studio', source: 'Social media', value: 90000, stage: 'Proposal', owner_id: uid(1) },
-      { id: 4, name: 'Greenleaf Organics', company: 'Greenleaf', source: 'Event', value: 200000, stage: 'Won', owner_id: uid(1) },
-    ],
+    leads: demoLeads(),
+    lead_activities: demoActivities(),
     projects: [
       { id: 1, name: 'Acme website revamp', client_id: 1, status: 'Active', manager_id: uid(2), start_date: day(-20), due_date: day(30), budget: 250000 },
       { id: 2, name: 'Bluewave Meta ads Q4', client_id: 2, status: 'Active', manager_id: uid(2), due_date: day(14), budget: 120000 },
@@ -242,6 +270,7 @@ function businessRules(key, row, old) {
   }
   if (key === 'content_plans' && old && row.status !== old.status && ['Pending approval', 'Approved'].includes(row.status)) notify(byRole('admin', 'manager').filter((i) => i !== u.id), 'Content plan ' + row.status.toLowerCase(), row.title, '#/content_plans');
   if (key === 'tickets' && !old) notify(byRole('admin', 'manager').filter((i) => i !== u.id), 'New support ticket', row.subject, '#/tickets');
+  if (key === 'leads' && old && row.stage !== old.stage) { db.seq.lead_activities++; db.lead_activities.push({ id: db.seq.lead_activities, lead_id: row.id, kind: 'Stage', body: `${old.stage} → ${row.stage}${row.lost_reason ? ' (' + row.lost_reason + ')' : ''}`, from_stage: old.stage, to_stage: row.stage, created_by: u.id, created_at: now() }); }
   if (key === 'leads' && row.stage === 'Won' && old?.stage !== 'Won') notify(byRole('admin', 'manager'), '🎉 Lead won', row.name, '#/leads');
 }
 function syncInvoice(id) {
@@ -277,7 +306,7 @@ export async function api(path, opts = {}) {
     for (const k of NAV) {
       const e = ENTITIES[k]; if (!e.perms.read.includes(user.role)) continue;
       entities[k] = { label: e.label, icon: e.icon, labelField: e.labelField, board: e.board, cols: e.cols, fields: e.fields,
-        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode, import: e.import,
+        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode, import: e.import, bulk: e.bulk,
         can: Object.fromEntries(['create', 'update', 'del'].map((p) => [p, e.perms[p].includes(user.role)])) };
     }
     const groups = NAV_GROUPS.map(([g, ks]) => [g, ks.filter((k) => entities[k])]).filter(([, ks]) => ks.length);
@@ -365,6 +394,11 @@ export async function api(path, opts = {}) {
     const key = m[1]; if (!ENTITIES[key]?.import) throw new Error('Import is not available for this module');
     for (const r of body.rows || []) { db.seq[key] = (db.seq[key] || 0) + 1; db[table(key)].push({ id: db.seq[key], created_by: me().id, created_at: now(), ...payload(key, r, true) }); }
     save(); return { count: (body.rows || []).length };
+  }
+  if (path === '/activities') {
+    if (method === 'POST') { db.seq.lead_activities++; const a = { id: db.seq.lead_activities, lead_id: body.lead_id, kind: body.kind, body: body.body || null, created_by: me().id, created_at: now() }; db.lead_activities.push(a); save(); return a; }
+    const rows = body.lead_id ? db.lead_activities.filter((x) => String(x.lead_id) === String(body.lead_id)) : db.lead_activities;
+    return [...rows].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   }
   if (path === '/tasks/remind') {
     const t = db.tasks.find((x) => String(x.id) === String(body.id)); if (!t) throw new Error('Task not found'); if (!t.assignee_id) throw new Error('This task has no assignee yet');
