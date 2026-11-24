@@ -277,7 +277,7 @@ export async function api(path, opts = {}) {
     for (const k of NAV) {
       const e = ENTITIES[k]; if (!e.perms.read.includes(user.role)) continue;
       entities[k] = { label: e.label, icon: e.icon, labelField: e.labelField, board: e.board, cols: e.cols, fields: e.fields,
-        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode,
+        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode, import: e.import,
         can: Object.fromEntries(['create', 'update', 'del'].map((p) => [p, e.perms[p].includes(user.role)])) };
     }
     const groups = NAV_GROUPS.map(([g, ks]) => [g, ks.filter((k) => entities[k])]).filter(([, ks]) => ks.length);
@@ -360,6 +360,11 @@ export async function api(path, opts = {}) {
       invoices: db.invoices.filter((i) => i.client_id === c.id && !['Draft', 'Cancelled'].includes(i.status)).map((i) => ({ number: i.number, issue_date: i.issue_date, due_date: i.due_date, total: i.total, amount_paid: i.amount_paid, status: i.status, share_token: i.share_token })),
       shoots: db.shoots.filter((s2) => s2.client_id === c.id && s2.shoot_date >= day() && s2.status !== 'Cancelled').map((s2) => ({ title: s2.title, date: s2.shoot_date, call_time: s2.call_time, location: s2.location, status: s2.status })),
       package: (db.packages.find((p) => p.client_id === c.id && p.status === 'Active') ? (({ name, videos_per_month, posts_per_month }) => ({ name, videos: videos_per_month, posts: posts_per_month }))(db.packages.find((p) => p.client_id === c.id && p.status === 'Active')) : null) };
+  }
+  if ((m = path.match(/^\/import\/(\w+)$/)) && method === 'POST') {
+    const key = m[1]; if (!ENTITIES[key]?.import) throw new Error('Import is not available for this module');
+    for (const r of body.rows || []) { db.seq[key] = (db.seq[key] || 0) + 1; db[table(key)].push({ id: db.seq[key], created_by: me().id, created_at: now(), ...payload(key, r, true) }); }
+    save(); return { count: (body.rows || []).length };
   }
   if (path === '/tasks/remind') {
     const t = db.tasks.find((x) => String(x.id) === String(body.id)); if (!t) throw new Error('Task not found'); if (!t.assignee_id) throw new Error('This task has no assignee yet');

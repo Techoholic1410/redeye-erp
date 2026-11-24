@@ -160,7 +160,7 @@ const TAGS = {
   ok: ['Active', 'Paid', 'Won', 'Done', 'Approved', 'Completed', 'Resolved', 'Closed', 'Reimbursed', 'In use', 'Yes', 'Published', 'Confirmed', 'Accepted', 'Available'],
   bad: ['Overdue', 'Rejected', 'Lost', 'Urgent', 'Cancelled', 'Left', 'No', 'Changes needed', 'Changes requested', 'Blacklisted', 'Expired'],
   warn: ['Pending', 'High', 'On hold', 'Review', 'Waiting', 'Repair', 'On notice', 'Sent', 'Internal review', 'Client review', 'Sent to client', 'Pending approval', 'Postponed', 'Busy'],
-  info: ['In progress', 'Proposal', 'Contacted', 'Open', 'Planning', 'Medium', 'Scripting', 'Ready to shoot', 'Shoot scheduled', 'Shot', 'Editing', 'Scheduled', 'Planned', 'In production'],
+  info: ['Replied', 'Meeting', 'In progress', 'Proposal', 'Contacted', 'Open', 'Planning', 'Medium', 'Scripting', 'Ready to shoot', 'Shoot scheduled', 'Shot', 'Editing', 'Scheduled', 'Planned', 'In production'],
 };
 const tagClass = (v) => Object.keys(TAGS).find((k) => TAGS[k].includes(v)) || '';
 function tag(v) { if (v == null || v === '') return ''; return `<span class="tag ${tagClass(v)}">${esc(v)}</span>`; }
@@ -196,6 +196,7 @@ async function entityView(view, key) {
   view.innerHTML = `<div class="bar"><input id="q" placeholder="Search…" type="search">
     ${modes.length > 1 ? `<div class="seg" id="seg">${modes.map((m) => `<button data-m="${m}" class="${m === mode ? 'on' : ''}">${MODE_L[m]}</button>`).join('')}</div>` : ''}<span class="sp"></span>
     ${key === 'shoots' && e.can.create ? '<button class="btn ghost" id="aishoot">✨ Plan shoots</button>' : ''}
+    ${e.import && e.can.create ? '<button class="btn ghost" id="tpl">⬇ Template</button><button class="btn ghost" id="imp">⬆ Import CSV</button>' : ''}
     <button class="btn ghost" id="exp">⬇ CSV</button>${e.can.create ? '<button class="btn" id="new">+ New</button>' : ''}</div>
     ${fdefs.length ? `<div class="flt">${fdefs.map((f) => `<select data-f="${f.k}"><option value="">${esc(f.l.replace(/\s*\(.*$/, ''))}: all</option>${(f.t === 'ref' ? (lookups[f.to] || []).map((o) => [o.id, o.label]) : (f.opts || []).map((o) => [o, o])).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select>`).join('')}</div>` : ''}
     <div id="data"></div>`;
@@ -275,6 +276,8 @@ async function entityView(view, key) {
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = `${key}-${today()}.csv`; a.click();
   };
   if ($('#new')) $('#new').onclick = () => form(key, null, load, preset());
+  if ($('#tpl')) $('#tpl').onclick = () => downloadTemplate(key);
+  if ($('#imp')) $('#imp').onclick = () => importFlow(key, load);
   if ($('#aishoot')) $('#aishoot').onclick = (ev) => aiRun(ev.currentTarget, () => aiShootPlan(load));
   await load();
 }
@@ -781,12 +784,12 @@ function shareModal(o) {
       <div><label>Email (optional)</label><input id="em" type="email" value="${esc(o.email || '')}" placeholder="client@example.com"></div>
       <div><label>Message</label><textarea id="msg" style="min-height:170px">${esc(o.message)}</textarea></div>
       ${o.markLabel ? `<label style="text-transform:none;letter-spacing:0;display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink)"><input type="checkbox" id="ms" checked style="width:auto"> ${esc(o.markLabel)}</label>` : ''}
-      <small style="color:var(--mute)">Anyone with the link can open it, so send it only to the client.</small><div class="err" id="fe"></div></div>
-    <footer><button class="btn ghost" id="cp">Copy link</button><button class="btn ghost" id="gm">Open Gmail</button><button class="btn" id="go">Open WhatsApp</button></footer></div>`;
+      ${o.link ? '<small style="color:var(--mute)">Anyone with the link can open it, so send it only to the client.</small>' : ''}<div class="err" id="fe"></div></div>
+    <footer>${o.link ? '<button class="btn ghost" id="cp">Copy link</button>' : ''}<button class="btn ghost" id="gm">Open Gmail</button><button class="btn" id="go">Open WhatsApp</button></footer></div>`;
   document.body.append(ov);
   const close = () => ov.remove();
   $('#x', ov).onclick = close; ov.onmousedown = (e) => { if (e.target === ov) close(); };
-  $('#cp', ov).onclick = async () => { try { await navigator.clipboard.writeText(o.link); toast('Link copied'); } catch { toast(o.link); } };
+  if (o.link) $('#cp', ov).onclick = async () => { try { await navigator.clipboard.writeText(o.link); toast('Link copied'); } catch { toast(o.link); } };
   const sent = async () => { if ($('#ms', ov)?.checked && o.onSent) { try { await o.onSent(); } catch {} } close(); };
   $('#go', ov).onclick = () => {
     const n = waNumber($('#ph', ov).value);
@@ -1166,6 +1169,116 @@ async function companyEditor() {
     close(); toast('Saved');
   });
 }
+
+// ---------- CSV import (leads) ----------
+function parseCSV(text) {
+  text = String(text || '').replace(/^﻿/, '');
+  const first = text.split(/\r?\n/, 1)[0] || '', cnt = (c) => first.split(c).length - 1;
+  const d = cnt('\t') > cnt(',') && cnt('\t') > cnt(';') ? '\t' : cnt(';') > cnt(',') ? ';' : ',';
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === d) { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cur); cur = ''; if (row.some((x) => x.trim() !== '')) rows.push(row); row = []; }
+    else cur += c;
+  }
+  row.push(cur); if (row.some((x) => x.trim() !== '')) rows.push(row);
+  return rows;
+}
+const csvCell = (v) => { v = String(v ?? ''); return /[",\n;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+function downloadTemplate(key) {
+  const cfg = meta.entities[key].import, csv = '﻿' + [cfg.template, ...cfg.examples].map((r) => r.map(csvCell).join(',')).join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); a.download = `redeye-${key}-template.csv`; a.click();
+}
+const last10 = (p) => String(p || '').replace(/\D/g, '').slice(-10);
+const normPhone = (p) => { const d = String(p || '').replace(/[^\d+]/g, '').replace(/^\+/, '').replace(/^0+/, ''); return d.length === 10 ? '91' + d : d; };
+const toISO = (v) => {
+  v = String(v || '').trim(); if (!v) return '';
+  let m = v.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = v.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/); if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const t = Date.parse(v); return Number.isNaN(t) ? null : iso(new Date(t));
+};
+
+async function importFlow(key, reload) {
+  const e = meta.entities[key], cfg = e.import;
+  const input = document.createElement('input'); input.type = 'file'; input.accept = '.csv,.tsv,.txt,text/csv';
+  input.onchange = async () => {
+    const file = input.files[0]; if (!file) return;
+    let grid; try { grid = parseCSV(await file.text()); } catch { return toast('Could not read that file'); }
+    if (grid.length < 2) return toast('The file needs a heading row and at least one lead');
+    // match each column heading to a field (by our template names or the usual alternatives)
+    const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(), alias = {};
+    for (const [k, list] of Object.entries(cfg.aliases)) list.forEach((a) => (alias[norm(a)] = k));
+    const map = grid[0].map((h) => alias[norm(h)] || null), unknown = grid[0].filter((h, i) => !map[i] && String(h).trim());
+    if (!map.includes('name') && !map.includes('company')) return toast('No “Name” or “Company” column found. Download the template to see the expected headings.');
+    const users = await api('/e/users').catch(() => []), existing = await api('/e/' + key), seenP = new Set(existing.map((x) => last10(x.phone)).filter(Boolean)), seenE = new Set(existing.map((x) => String(x.email || '').toLowerCase()).filter(Boolean)), seenI = new Set(existing.map((x) => String(x.instagram || '').toLowerCase().replace('@', '')).filter(Boolean));
+    const opt = (f) => e.fields.find((x) => x.k === f).opts, pick = (v, list) => list.find((o) => o.toLowerCase() === String(v).trim().toLowerCase());
+    const out = grid.slice(1).map((cells, n) => {
+      const r = {}, warn = [], err = []; map.forEach((k, i) => { if (k) r[k] = String(cells[i] ?? '').trim(); });
+      if (!r.name && !r.company) err.push('no name or company'); if (!r.name) r.name = r.company;
+      if (r.phone) r.phone = normPhone(r.phone); if (r.phone && last10(r.phone).length < 10) warn.push('phone looks short');
+      if (r.email && !/^\S+@\S+\.\S+$/.test(r.email)) { warn.push('email ignored (not valid)'); r.email = ''; }
+      if (r.instagram) r.instagram = '@' + r.instagram.replace(/^.*instagram\.com\//i, '').replace(/[@/]/g, '').trim();
+      if (r.value) { const v = Number(String(r.value).replace(/[^\d.]/g, '')); if (Number.isFinite(v) && v > 0) r.value = v; else { warn.push('budget ignored'); delete r.value; } }
+      if (r.stage) { const s = pick(r.stage, opt('stage')); if (s) r.stage = s; else { warn.push(`stage “${r.stage}” → New`); r.stage = 'New'; } } else r.stage = 'New';
+      if (r.source) { const s = pick(r.source, opt('source')); if (s) r.source = s; else { r.notes = [r.notes, `Source: ${r.source}`].filter(Boolean).join(' · '); r.source = 'Other'; } } else r.source = 'CSV import';
+      for (const f of ['next_followup', 'last_contact']) if (r[f]) { const d = toISO(r[f]); if (d === null) { warn.push(`${f.replace('_', ' ')} ignored`); delete r[f]; } else r[f] = d; }
+      if (r.owner_id) { const u = users.find((x) => x.email?.toLowerCase() === r.owner_id.toLowerCase() || x.name?.toLowerCase() === r.owner_id.toLowerCase()); if (u) r.owner_id = u.id; else { warn.push('owner not found'); delete r.owner_id; } }
+      const dupe = (r.phone && seenP.has(last10(r.phone))) || (r.email && seenE.has(r.email.toLowerCase())) || (r.instagram && seenI.has(r.instagram.toLowerCase().replace('@', '')));
+      if (!dupe) { if (r.phone) seenP.add(last10(r.phone)); if (r.email) seenE.add(r.email.toLowerCase()); if (r.instagram) seenI.add(r.instagram.toLowerCase().replace('@', '')); }
+      Object.keys(r).forEach((k) => r[k] === '' && delete r[k]);
+      return { n: n + 2, r, warn, err, dupe: !!dupe && !err.length };
+    });
+    const good = out.filter((x) => !x.err.length && !x.dupe), dupes = out.filter((x) => x.dupe), bad = out.filter((x) => x.err.length);
+    const ov = document.createElement('div'); ov.className = 'ov';
+    ov.innerHTML = `<div class="modal" style="max-width:820px"><header><h3>⬆ Import leads · ${esc(file.name)}</h3><button class="btn ghost sm" id="x">✕</button></header>
+      <div class="body" style="grid-template-columns:1fr">
+        <div style="display:flex;gap:10px;flex-wrap:wrap"><span class="tag ok">${good.length} ready to import</span><span class="tag warn">${dupes.length} already in your leads</span><span class="tag bad">${bad.length} with problems</span></div>
+        ${unknown.length ? `<small style="color:var(--mute)">Columns not recognised (ignored): ${esc(unknown.join(', '))}</small>` : ''}
+        ${dupes.length ? `<label style="text-transform:none;letter-spacing:0;display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink)"><input type="checkbox" id="dp" style="width:auto"> Import the ${dupes.length} duplicates anyway</label>` : ''}
+        <div class="tw" style="max-height:44vh;overflow:auto"><table><thead><tr><th>Row</th><th>Name</th><th>Company</th><th>Phone</th><th>Source</th><th>Stage</th><th>Check</th></tr></thead><tbody>
+          ${out.slice(0, 200).map((x) => `<tr style="cursor:default"><td>${x.n}</td><td>${esc(x.r.name || '')}</td><td>${esc(x.r.company || '')}</td><td>${esc(x.r.phone || '')}</td><td>${esc(x.r.source || '')}</td><td>${esc(x.r.stage || '')}</td><td style="white-space:normal">${x.err.length ? `<span class="tag bad">${esc(x.err.join(', '))}</span>` : x.dupe ? '<span class="tag warn">duplicate</span>' : x.warn.length ? `<span class="tag info">${esc(x.warn.join(', '))}</span>` : '<span class="tag ok">ok</span>'}</td></tr>`).join('')}</tbody></table></div>
+        ${out.length > 200 ? `<small style="color:var(--mute)">Showing the first 200 of ${out.length} rows. All valid rows are imported.</small>` : ''}
+        <div class="err" id="fe"></div></div>
+      <footer><button class="btn ghost" id="no">Cancel</button><button class="btn" id="go">Import <span id="ct">${good.length}</span> leads</button></footer></div>`;
+    document.body.append(ov);
+    const close = () => ov.remove(); $('#x', ov).onclick = close; $('#no', ov).onclick = close; ov.onmousedown = (ev) => { if (ev.target === ov) close(); };
+    const sel = () => [...good, ...($('#dp', ov)?.checked ? dupes : [])];
+    $('#dp', ov)?.addEventListener('change', () => ($('#ct', ov).textContent = sel().length));
+    $('#go', ov).onclick = async (ev) => {
+      const rows = sel().map((x) => x.r); if (!rows.length) { $('#fe', ov).textContent = 'Nothing to import'; return; }
+      ev.target.disabled = true; ev.target.textContent = 'Importing…';
+      try { const res = await api('/import/' + key, { method: 'POST', body: { rows } }); close(); toast(`${res.count} leads imported`); reload(); }
+      catch (err) { $('#fe', ov).textContent = err.message; ev.target.disabled = false; ev.target.textContent = 'Try again'; }
+    };
+  };
+  input.click();
+}
+
+// ---------- lead outreach ----------
+ACTIONS.whatsapp_lead = {
+  label: '💬 Message lead',
+  async run(lead, ctx) {
+    if (!lead.phone && !lead.email) throw new Error('Add a phone number or email to this lead first');
+    const msg = `Hello ${lead.name},\n\nThis is ${meta.user.name} from Redeye Digital Solutions. We create social media content and videos for brands like ${lead.company || 'yours'}${lead.interest ? `, and I saw you were interested in ${lead.interest}` : ''}.\n\nCould we have a quick chat this week about how we can help you grow on Instagram? Happy to share a few examples of our work.\n\nThank you!`;
+    shareModal({ title: `Message ${lead.name}`, phone: lead.phone, email: lead.email, subject: 'Redeye Digital Solutions: content for ' + (lead.company || lead.name), link: '', message: msg, markLabel: 'Log as contacted (follow up in 3 days)',
+      onSent: async () => { await api(`/e/leads/${lead.id}`, { method: 'PUT', body: { ...lead, last_contact: today(), next_followup: addDays(3), stage: lead.stage === 'New' ? 'Contacted' : lead.stage } }); if (ctx?.after) ctx.after(); } });
+  },
+};
+ACTIONS.log_followup = {
+  label: '📞 Log follow-up',
+  async run(lead, ctx) {
+    formModal(`Follow-up · ${lead.name}`, `<div class="full"><label>What happened?</label><select name="out"><option value="Contacted">Called / messaged: no reply yet</option><option value="Replied">They replied</option><option value="Meeting">Meeting scheduled</option><option value="Proposal">Proposal sent</option><option value="Won">Won 🎉</option><option value="Lost">Not interested / lost</option></select></div>
+      <div><label>Follow up again in</label><select name="days"><option value="2">2 days</option><option value="3" selected>3 days</option><option value="7">1 week</option><option value="14">2 weeks</option><option value="30">1 month</option><option value="">No follow-up</option></select></div>
+      <div class="full"><label>Note</label><textarea name="note" placeholder="e.g. wants reel samples, budget ~₹30k"></textarea></div>`, 'Save', async (f, close) => {
+      const closed = ['Won', 'Lost'].includes(f.out), notes = [lead.notes, f.note && `${NICE_DATE(today())}: ${f.note}`].filter(Boolean).join('\n');
+      await api(`/e/leads/${lead.id}`, { method: 'PUT', body: { ...lead, stage: f.out, last_contact: today(), next_followup: closed || !f.days ? '' : addDays(+f.days), notes } });
+      close(); if (ctx.close) ctx.close(); toast('Follow-up logged'); ctx.after();
+    });
+  },
+};
 
 // ---------- task reminders ----------
 ACTIONS.remind_task = {

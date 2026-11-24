@@ -98,7 +98,7 @@ export async function api(path, opts = {}) {
       if (!e.perms.read.includes(user.role)) continue;
       entities[k] = {
         label: e.label, icon: e.icon, labelField: e.labelField, board: e.board, cols: e.cols, fields: e.fields,
-        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode,
+        calendar: e.calendar, filters: e.filters, actions: e.actions, defaultMode: e.defaultMode, import: e.import,
         can: Object.fromEntries(['create', 'update', 'del'].map((p) => [p, e.perms[p].includes(user.role)])),
       };
     }
@@ -172,6 +172,12 @@ export async function api(path, opts = {}) {
   if (path === '/calendar/token') return ok(await sb.rpc('my_calendar_token'));
   if (path === '/public/approval') return ok(await sb.rpc('public_approval', { kind: body.kind, tok: body.token }));
   if (path === '/public/respond') return ok(await sb.rpc('respond_approval', { kind: body.kind, tok: body.token, item_id: body.item_id, decision: body.decision, who: body.who || '', comment: body.comment || '' }));
+  if ((m = path.match(/^\/import\/(\w+)$/)) && method === 'POST') {
+    const key = m[1]; if (!ENTITIES[key]?.import) throw new Error('Import is not available for this module');
+    const u = await me(), rows = (body.rows || []).map((r) => ({ ...payload(key, r, true), created_by: u.id })); let n = 0;
+    for (let i = 0; i < rows.length; i += 200) { const chunk = rows.slice(i, i + 200); ok(await sb.from(table(key)).insert(chunk)); n += chunk.length; }
+    return { count: n };
+  }
   if (path === '/tasks/remind') { ok(await sb.rpc('remind_task', { tid: body.id, note: body.note || null })); return {}; }
   if (path === '/tasks/snooze') { ok(await sb.rpc('snooze_task', { tid: body.id, mins: body.mins })); return {}; }
   if (path === '/public/payreq') return ok(await sb.rpc('public_payment_request', { tok: body.token }));
